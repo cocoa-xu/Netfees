@@ -6,7 +6,9 @@ A native macOS menu bar meter that records real network traffic and calculates d
 
 ## Use
 
-Open `build/NetFees.app`. The two menu bar lines show today's downloaded data and network cost. Click them for a glass panel with your costs, downloads, uploads, live transfer speeds, and a seven-day chart. History keeps every recorded day and exports CSV. The settings menu includes launch at login and access to the local history file.
+Download a DMG from [GitHub Releases](https://github.com/cocoa-xu/Netfees/releases/latest), open it, and drag NetFees into Applications. Choose Apple Silicon for M-series Macs, Intel for Intel Macs, or Universal for either. Release apps are signed with Developer ID, and the DMGs are notarized and stapled.
+
+Open NetFees. The two menu bar lines show today's downloaded data and network cost. Click them for a glass panel with your costs, downloads, uploads, live transfer speeds, and a seven-day chart. History keeps every recorded day and exports CSV. The settings menu includes launch at login and access to the local history file.
 
 Requires macOS 14 or later. macOS 26 and later use native `NSGlassEffectView`; older systems use a translucent AppKit material. No third-party dependencies, administrator privileges, packet capture, or network extension are required.
 
@@ -36,7 +38,7 @@ xcodebuild -project NetFees.xcodeproj -scheme NetFees -destination 'platform=mac
 
 The generated Xcode project and icon are ignored by Git. `DEVELOPMENT_TEAM` and `CODE_SIGN_IDENTITY` can be provided by the local signing configuration or overridden through environment variables.
 
-The CI workflow tests the app and builds a universal binary. The release workflow runs for `v*` tags, builds Universal, Apple Silicon, and Intel variants, creates DMGs, notarizes and staples them, and attaches them to a GitHub Release. GitHub Actions is currently disabled for this repository.
+The CI workflow tests the app and builds a universal binary. The release workflow runs for `v*` tags, builds Universal, Apple Silicon, and Intel variants, creates DMGs, notarizes and staples them, and attaches them to a GitHub Release.
 
 Release builds require these repository Secrets:
 
