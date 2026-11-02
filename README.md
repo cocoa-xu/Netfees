@@ -45,7 +45,7 @@ Release builds require these repository Secrets:
 | `DEV_ID_APP_CERTIFICATE_BASE64` | Base64-encoded Developer ID Application `.p12`, including its private key |
 | `DEV_ID_APP_CERTIFICATE_PASSWORD` | Password for that `.p12` |
 | `KEYCHAIN_PASSWORD` | Password for the temporary runner keychain |
-| `DEV_ID_PROVISIONING_PROFILE_BASE64` | Base64-encoded Developer ID provisioning profile for `moe.ryza.NetFees` |
+| `DEV_ID_PROVISIONING_PROFILE_BASE64` | Base64-encoded Developer ID provisioning profile for `moe.uwucocoa.Netfees` |
 | `TEAM_ID` | Developer team that owns the certificate and profile |
 | `APPLE_ID` | Apple account used for notarization |
 | `NOTARY_PASSWORD` | App-specific password for that Apple account |

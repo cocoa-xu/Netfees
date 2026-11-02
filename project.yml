@@ -41,7 +41,7 @@ targets:
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         MARKETING_VERSION: 0.1.0
-        PRODUCT_BUNDLE_IDENTIFIER: moe.ryza.NetFees
+        PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.Netfees
       configs:
         Release:
           DEAD_CODE_STRIPPING: YES
@@ -58,7 +58,7 @@ targets:
         CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
         CODE_SIGN_STYLE: Manual
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: moe.ryza.NetFeesTests
+        PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.NetfeesTests
     dependencies:
       - target: NetFeesCore
 

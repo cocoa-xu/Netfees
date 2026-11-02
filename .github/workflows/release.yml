@@ -129,7 +129,7 @@ jobs:
             echo "::error::The provisioning profile belongs to a different team."
             exit 1
           fi
-          if [[ "$profile_app_id" != "$TEAM_ID.moe.ryza.NetFees" ]]; then
+          if [[ "$profile_app_id" != "$TEAM_ID.moe.uwucocoa.Netfees" ]]; then
             echo "::error::The provisioning profile does not match the app bundle identifier."
             exit 1
           fi
@@ -162,7 +162,7 @@ jobs:
             "$EXPORT_OPTIONS_PATH"
           /usr/libexec/PlistBuddy \
             -c "Add :provisioningProfiles dict" \
-            -c "Add :provisioningProfiles:moe.ryza.NetFees string $PROVISIONING_PROFILE_NAME" \
+            -c "Add :provisioningProfiles:moe.uwucocoa.Netfees string $PROVISIONING_PROFILE_NAME" \
             "$EXPORT_OPTIONS_PATH"
 
           build_variant() {
