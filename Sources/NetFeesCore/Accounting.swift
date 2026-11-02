@@ -71,10 +71,13 @@ public struct Ledger: Codable, Sendable {
     public var startedAt: Date
     public var timeZoneIdentifier: String
     public private(set) var records: [String: DailyRecord] = [:]
+    public private(set) var initialImportDecision: InitialImportDecision?
+    public private(set) var initialImport: InitialTrafficImport?
 
-    public init(startedAt: Date = Date(), timeZone: TimeZone = .current) {
+    public init(startedAt: Date = Date(), timeZone: TimeZone = .current, offerInitialImport: Bool = true) {
         self.startedAt = startedAt
         timeZoneIdentifier = timeZone.identifier
+        initialImportDecision = offerInitialImport ? .pending : nil
     }
 
     public var calendar: Calendar {
@@ -99,6 +102,20 @@ public struct Ledger: Codable, Sendable {
     public mutating func ensureDay(_ date: Date) {
         let key = dayKey(date)
         if records[key] == nil { records[key] = DailyRecord(id: key) }
+    }
+
+    public mutating func prepareInitialImport(_ traffic: Traffic, at date: Date) {
+        guard initialImportDecision == .pending, initialImport == nil else { return }
+        initialImport = InitialTrafficImport(capturedAt: date, traffic: traffic)
+    }
+
+    public mutating func resolveInitialImport(include: Bool) {
+        guard initialImportDecision == .pending, initialImport != nil else { return }
+        initialImportDecision = include ? .included : .declined
+    }
+
+    public var includedInitialImport: InitialTrafficImport? {
+        initialImportDecision == .included ? initialImport : nil
     }
 
     public mutating func add(_ traffic: Traffic, from start: Date, to end: Date) {
@@ -127,12 +144,25 @@ public struct Ledger: Codable, Sendable {
     }
 
     public var csv: String {
-        let header = "date,download_bytes,upload_bytes,cost_eur,rate_eur_per_GB,time_zone,observed_seconds"
-        let rows = sortedRecords.map {
-            "\($0.id),\($0.downloadBytes),\($0.uploadBytes),\(NSDecimalNumber(decimal: $0.fee).stringValue),0.055,\(timeZoneIdentifier),\(Int($0.observedSeconds))"
+        let header = "date,download_bytes,upload_bytes,cost_eur,rate_eur_per_GB,time_zone,observed_seconds,record_type,captured_at"
+        var rows = sortedRecords.map {
+            "\($0.id),\($0.downloadBytes),\($0.uploadBytes),\(NSDecimalNumber(decimal: $0.fee).stringValue),0.055,\(timeZoneIdentifier),\(Int($0.observedSeconds)),daily,"
+        }
+        if let imported = includedInitialImport {
+            rows.append("unknown,\(imported.traffic.received),\(imported.traffic.sent),\(NSDecimalNumber(decimal: imported.fee).stringValue),0.055,\(timeZoneIdentifier),0,initial_import,\(ISO8601DateFormatter().string(from: imported.capturedAt))")
         }
         return ([header] + rows).joined(separator: "\n") + "\n"
     }
+}
+
+public enum InitialImportDecision: String, Codable, Sendable {
+    case pending, included, declined
+}
+
+public struct InitialTrafficImport: Codable, Equatable, Sendable {
+    public let capturedAt: Date
+    public let traffic: Traffic
+    public var fee: Decimal { Tariff.fee(downloadBytes: traffic.received) }
 }
 
 public struct LedgerStore {
