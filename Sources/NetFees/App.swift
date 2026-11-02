@@ -35,7 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.terminate(nil)
             return
         }
+        #if DEBUG
+        let directory = ProcessInfo.processInfo.environment["NETFEES_DATA_DIRECTORY"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        model = UsageModel(directory: directory)
+        #else
         model = UsageModel()
+        #endif
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.target = self
@@ -60,12 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.sample(); self?.model.save() }
+            MainActor.assumeIsolated { self?.model.prepareForSleep() }
         })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.sample() }
+            MainActor.assumeIsolated { self?.model.wake() }
         })
-        if CommandLine.arguments.contains("--show") { togglePanel() }
+        if CommandLine.arguments.contains("--show") || model.pendingInitialImport != nil { togglePanel() }
     }
 
     private func createPanel() {

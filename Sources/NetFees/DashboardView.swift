@@ -9,19 +9,18 @@ struct DashboardView: View {
     private let accent = Color(red: 0.95, green: 0.35, blue: 0.24)
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 12) {
             header
-            Picker("View", selection: $selection) {
-                Text("Today").tag(0)
-                Text("History").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            if selection == 0 {
-                today
+            if let imported = model.pendingInitialImport {
+                initialImport(imported)
             } else {
-                history
+                Picker("View", selection: $selection) {
+                    Text("Today").tag(0)
+                    Text("History").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if selection == 0 { today } else { history }
             }
 
             Spacer(minLength: 0)
@@ -32,7 +31,7 @@ struct DashboardView: View {
             }
             footer
         }
-        .padding(24)
+        .padding(20)
         .frame(width: 440, height: 680)
         .tint(accent)
         .background {
@@ -51,10 +50,10 @@ struct DashboardView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(accent.gradient)
                 Image(systemName: "eurosign.arrow.circlepath")
-                    .font(.system(size: 23, weight: .semibold)).foregroundStyle(.white)
-            }.frame(width: 44, height: 44)
+                    .font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+            }.frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 3) {
-                Text("netfees").font(.system(size: 26, weight: .heavy, design: .rounded)).tracking(-1)
+                Text("netfees").font(.system(size: 24, weight: .heavy, design: .rounded)).tracking(-1)
                 Text("Every byte accounted for.")
                     .font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
@@ -65,18 +64,18 @@ struct DashboardView: View {
             .buttonStyle(.plain)
             .help("Traffic measurement and pricing")
             .accessibilityLabel("About NetFees")
-            .popover(isPresented: $showAbout, arrowEdge: .leading) { about }
+            .popover(isPresented: $showAbout, arrowEdge: .top) { about }
         }
     }
 
     private var today: some View {
-        VStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("TODAY'S NETWORK COST")
                     .font(.system(size: 10, weight: .bold)).tracking(1.8)
                     .foregroundStyle(.secondary)
                 Text(Display.euros(model.today.fee, precise: true))
-                    .font(.system(size: 57, weight: .light, design: .rounded))
+                    .font(.system(size: 42, weight: .light, design: .rounded))
                     .monospacedDigit().tracking(-2)
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
@@ -86,15 +85,9 @@ struct DashboardView: View {
                     Text("\(Display.bytes(model.today.downloadBytes)) × €0.055 / GB")
                         .foregroundStyle(.secondary)
                 }.font(.system(size: 11, design: .monospaced))
-                Rectangle().fill(.primary.opacity(0.09)).frame(height: 1)
-                HStack {
-                    Text("Based on recorded download traffic.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: "network").foregroundStyle(accent.opacity(0.7))
-                }
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
             .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.primary.opacity(0.07)))
 
@@ -105,22 +98,23 @@ struct DashboardView: View {
                             speed: model.rate.sent, color: .teal)
             }
             weekChart
+            applicationList
         }
     }
 
     private func trafficCard(_ title: String, symbol: String, bytes: UInt64, speed: UInt64, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
             Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(color)
-            Text(Display.bytes(bytes)).font(.system(size: 23, weight: .semibold, design: .rounded))
+            Text(Display.bytes(bytes)).font(.system(size: 20, weight: .semibold, design: .rounded))
                 .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
             Text("\(Display.bytes(speed))/s").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
         .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 17))
     }
 
     private var weekChart: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text("THE LAST 7 DAYS").font(.system(size: 9, weight: .bold)).tracking(1.5)
                 Spacer()
@@ -140,10 +134,81 @@ struct DashboardView: View {
             .chartXAxis {
                 AxisMarks { _ in AxisValueLabel().font(.system(size: 9)) }
             }
-            .frame(height: 78)
-            Text("Daily cost from recorded downloads.")
-                .font(.system(size: 10)).foregroundStyle(.tertiary)
+            .frame(height: 46)
         }.padding(.horizontal, 3)
+    }
+
+    private var applicationList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("APPLICATIONS TODAY").font(.system(size: 9, weight: .bold)).tracking(1.3)
+                Spacer()
+                Text("DOWNLOAD COST").font(.system(size: 8, weight: .medium)).tracking(0.6)
+            }.foregroundStyle(.secondary)
+            Text(model.applicationStatus).font(.system(size: 9)).foregroundStyle(.tertiary)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    let applications = model.applications(on: model.today.id)
+                    if applications.isEmpty {
+                        Text("Application traffic will appear as it is measured.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
+                    }
+                    ForEach(applications) { application in
+                        applicationRow(application, showRate: true)
+                        Divider().opacity(0.35)
+                    }
+                }
+            }
+            .frame(minHeight: 110, maxHeight: .infinity)
+        }
+    }
+
+    private func applicationRow(_ application: ApplicationUsageRow, showRate: Bool) -> some View {
+        HStack(spacing: 9) {
+            Image(nsImage: model.icon(for: application.identity))
+                .resizable().scaledToFit().frame(width: 26, height: 26)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(application.identity.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    .help(application.identity.bundlePath ?? String(application.identity.id.dropFirst("process:".count)))
+                Text("↓ \(Display.bytes(application.record.downloadBytes)) · ↑ \(Display.bytes(application.record.uploadBytes))")
+                    .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(Display.applicationEuros(application.record.fee))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(accent)
+                if showRate {
+                    Text("↓ \(Display.bytes(application.rate.received))/s · ↑ \(Display.bytes(application.rate.sent))/s")
+                        .font(.system(size: 8, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func initialImport(_ imported: InitialTrafficImport) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Your Mac already has a tab.").font(.system(size: 24, weight: .semibold, design: .rounded))
+            Text("Include the traffic already counted by macOS?").font(.system(size: 13))
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Display.euros(imported.fee, precise: true)).font(.system(size: 42, weight: .light, design: .rounded))
+                Text("↓ \(Display.bytes(imported.traffic.received)) downloaded")
+                Text("↑ \(Display.bytes(imported.traffic.sent)) uploaded")
+            }.font(.system(size: 12, design: .monospaced))
+            Text("These counters accumulate until a network interface resets. They may cover several days. Imported usage gets its own history entry, separate from today's measured traffic.")
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button("Import existing usage") { model.resolveInitialImport(include: true) }
+                .buttonStyle(.borderedProminent)
+            Button("Start from now") { model.resolveInitialImport(include: false) }
+                .buttonStyle(.bordered)
+            Text("Application history starts when NetFees begins observing each app.")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
     }
 
     private var history: some View {
@@ -167,6 +232,20 @@ struct DashboardView: View {
             }.font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(.secondary)
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if let imported = model.ledger.includedInitialImport {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Before NetFees").font(.system(size: 12, weight: .semibold))
+                                Text("Imported \(imported.capturedAt.formatted(date: .abbreviated, time: .omitted)) · dates unknown")
+                                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                                Text("↓ \(Display.bytes(imported.traffic.received)) · ↑ \(Display.bytes(imported.traffic.sent))")
+                                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(Display.euros(imported.fee, precise: true)).font(.system(size: 11, weight: .medium, design: .monospaced))
+                        }.padding(.vertical, 12)
+                        Divider().opacity(0.45)
+                    }
                     ForEach(model.ledger.sortedRecords) { day in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
@@ -183,6 +262,14 @@ struct DashboardView: View {
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .frame(width: 90, alignment: .trailing)
                         }.padding(.vertical, 12)
+                        let applications = model.applications(on: day.id)
+                        if !applications.isEmpty {
+                            DisclosureGroup("\(applications.count) applications") {
+                                ForEach(applications) { application in
+                                    applicationRow(application, showRate: false)
+                                }
+                            }.font(.system(size: 10)).padding(.bottom, 10)
+                        }
                         Divider().opacity(0.45)
                     }
                 }
@@ -221,8 +308,13 @@ struct DashboardView: View {
             Text("NetFees reads this Mac's network counters and records daily upload and download totals.")
             Text("Download costs are calculated at €0.055 per decimal GB (1,000,000,000 bytes). Uploads are measured separately and do not contribute to the cost.")
             Text("Metering covers en* network interfaces while NetFees runs, including local-network traffic and protocol overhead. VPN tunnels and loopback are excluded to avoid counting traffic twice. No packet contents are read.")
-            Text("History begins when you first open NetFees. Closed-app traffic is not recorded. Intervals spanning midnight are divided by elapsed time. Days use \(model.ledger.timeZoneIdentifier).")
-            Link("Read amendment I-1358 ↗", destination: URL(string: "https://www.assemblee-nationale.fr/dyn/17/amendements/3210A/AN/1358")!)
+            Text("On first launch, existing interface totals can be imported as a separate history entry. Daily history records traffic observed while NetFees runs. Days use \(model.ledger.timeZoneIdentifier).")
+            Text("Application totals and speeds use macOS TCP/UDP process counters, without administrator access. Helpers are grouped with their apps. VPNs, proxies, shared services, and short-lived processes can affect attribution, so app totals may differ from the physical-interface total.")
+            Button("Read amendment I-1358 ↗") {
+                if NSWorkspace.shared.open(URL(string: "https://www.assemblee-nationale.fr/dyn/17/amendements/3210A/AN/1358")!) {
+                    showAbout = false
+                }
+            }.buttonStyle(.link)
         }
         .font(.system(size: 11)).foregroundStyle(.secondary)
         .padding(24).frame(width: 360)

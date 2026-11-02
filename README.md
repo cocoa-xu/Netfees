@@ -8,9 +8,11 @@ A native macOS menu bar meter that records real network traffic and calculates d
 
 Download a DMG from [GitHub Releases](https://github.com/cocoa-xu/Netfees/releases/latest), open it, and drag NetFees into Applications. Choose Apple Silicon for M-series Macs, Intel for Intel Macs, or Universal for either. Release apps are signed with Developer ID, and the DMGs are notarized and stapled.
 
-Open NetFees. The two menu bar lines show today's downloaded data and network cost. Click them for a glass panel with your costs, downloads, uploads, live transfer speeds, and a seven-day chart. History keeps every recorded day and exports CSV. The settings menu includes launch at login and access to the local history file.
+Open NetFees. The two menu bar lines show today's downloaded data and network cost. Click them for a glass panel with your costs, downloads, uploads, live transfer speeds, a seven-day chart, and a scrolling application list sorted by download cost. Each application shows downloaded and uploaded bytes, cost, and current transfer speeds. History keeps every recorded day, includes expandable application breakdowns, and exports the overall ledger as CSV.
 
-Requires macOS 14 or later. macOS 26 and later use native `NSGlassEffectView`; older systems use a translucent AppKit material. No third-party dependencies, administrator privileges, packet capture, or network extension are required.
+On first launch, choose whether to import the cumulative interface counters already available from macOS. Imported traffic has its own "Before NetFees" history entry and contributes to the all-time cost. Its dates are unknown, so it does not change today's bill or the daily chart. Existing installations retain their history without being asked to import it again.
+
+Requires macOS 14 or later. macOS 26 and later use native `NSGlassEffectView`; older systems use a translucent AppKit material. No third-party dependencies, administrator privileges, packet capture, network extension, or installed privileged helper are required. Application metering runs the macOS-provided `nettop` command as the current user.
 
 ## Build
 
@@ -60,11 +62,15 @@ The release workflow uses the automatically supplied `GITHUB_TOKEN` with `conten
 - One GB means 1,000,000,000 bytes. The ledger stores exact byte totals and computes fees with decimal arithmetic, rounding only for display. Uploads never contribute to the fee.
 - The meter samples 64-bit `NET_RT_IFLIST2` counters every second for `en` interfaces with numeric suffixes, normally Ethernet, Wi-Fi, and USB networking. It excludes `utun`, bridges, loopback, and peer-to-peer interfaces to avoid common double counting. VPN transport is counted on its underlying physical interface.
 - These are interface totals, including local-network traffic, retransmissions, and protocol overhead. All measured receive traffic contributes to the cost at the fixed rate.
-- Only traffic observed while the process runs is counted. Startup takes a fresh baseline instead of billing all traffic since boot. An added or reset interface also receives a fresh baseline.
+- Daily totals count traffic observed while the process runs. The optional first-launch import captures existing interface counters once, separately from daily totals. These counters cover each interface's lifetime since creation or reset, which is not necessarily the Mac's entire uptime. An added or reset interface receives a fresh baseline for daily metering.
 - Sampling intervals crossing midnight are divided proportionally by elapsed time. The time zone chosen on first launch stays fixed for consistent historical days, including daylight-saving transitions.
 - JSON history is saved atomically every 15 seconds, at midnight, before sleep, and on normal quit. A crash can lose at most the unsaved interval. An unreadable or unsupported history file is preserved, and an on-screen error explains that the current session cannot be saved.
 
-History lives at `~/Library/Application Support/NetFees/ledger.json`. There is no telemetry or automatic network request. External source links open only when clicked.
+Application history starts when the feature begins observing traffic. `nettop` provides non-loopback TCP/UDP process deltas approximately every two seconds; NetFees discards the initial cumulative frame, calculates rates from elapsed time, and groups helpers with their enclosing app or an identifiable parent app. Background services and standalone command-line programs remain separate entries. Distinct executable paths can have the same display name; hover over a name to see its path.
+
+Application accounting is separate from the physical-interface bill. VPNs, proxies, shared services, connection lifetimes, and very short-lived processes can affect attribution. App totals need not add up to the interface total and are never added to that total a second time. Application sampling pauses during sleep, resets its baseline on restart, and resumes automatically after a counter-service failure. Unobserved traffic is not reconstructed per app.
+
+Overall history lives at `~/Library/Application Support/NetFees/ledger.json`; application history lives alongside it in `applications.json`. Both are saved atomically. An unreadable application history is preserved. CSV exports distinguish daily rows from the optional initial import. There is no telemetry or automatic network request. External source links open only when clicked.
 
 ## Background
 
