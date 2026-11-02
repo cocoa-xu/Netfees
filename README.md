@@ -26,6 +26,32 @@ Without a configured identity, the script uses an ad hoc signature for local dev
 
 Copy the bundle to `~/Applications/NetFees.app` for a stable installation before enabling launch at login. The Swift package can also be opened directly in Xcode.
 
+The CI and release workflows use an XcodeGen project, following the same build and signing steps as [Battakorey](https://github.com/cocoa-xu/Battakorey):
+
+```sh
+brew install xcodegen
+./scripts/generate-project.sh
+xcodebuild -project NetFees.xcodeproj -scheme NetFees -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test
+```
+
+The generated Xcode project and icon are ignored by Git. `DEVELOPMENT_TEAM` and `CODE_SIGN_IDENTITY` can be provided by the local signing configuration or overridden through environment variables.
+
+The CI workflow tests the app and builds a universal binary. The release workflow runs for `v*` tags, builds Universal, Apple Silicon, and Intel variants, creates DMGs, notarizes and staples them, and attaches them to a GitHub Release. GitHub Actions is currently disabled for this repository.
+
+Release builds require these repository Secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `DEV_ID_APP_CERTIFICATE_BASE64` | Base64-encoded Developer ID Application `.p12`, including its private key |
+| `DEV_ID_APP_CERTIFICATE_PASSWORD` | Password for that `.p12` |
+| `KEYCHAIN_PASSWORD` | Password for the temporary runner keychain |
+| `DEV_ID_PROVISIONING_PROFILE_BASE64` | Base64-encoded Developer ID provisioning profile for `moe.ryza.NetFees` |
+| `TEAM_ID` | Developer team that owns the certificate and profile |
+| `APPLE_ID` | Apple account used for notarization |
+| `NOTARY_PASSWORD` | App-specific password for that Apple account |
+
+The release workflow uses the automatically supplied `GITHUB_TOKEN` with `contents: write`. Apple Development certificates and a separate personal access token are not needed for this workflow. Never commit actual certificate, profile, or password values.
+
 ## What the meter counts
 
 - The top menu bar line is **today's** download total. Both lines reset at the ledger's midnight; older totals remain in History.

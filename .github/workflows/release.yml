@@ -1,0 +1,262 @@
+name: Release macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build_with_signing:
+    runs-on: macos-15
+    env:
+      PROJECT_NAME: NetFees
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26.2
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Import Developer ID signing certificate
+        env:
+          DEV_ID_APP_CERTIFICATE_BASE64: ${{ secrets.DEV_ID_APP_CERTIFICATE_BASE64 }}
+          DEV_ID_APP_CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_APP_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          for variable in \
+            DEV_ID_APP_CERTIFICATE_BASE64 \
+            DEV_ID_APP_CERTIFICATE_PASSWORD \
+            KEYCHAIN_PASSWORD \
+            TEAM_ID
+          do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::$variable repository secret is not configured."
+              exit 1
+            fi
+          done
+
+          certificate_path="$RUNNER_TEMP/developer-id-application.p12"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+
+          printf '%s' "$DEV_ID_APP_CERTIFICATE_BASE64" |
+            base64 --decode -o "$certificate_path"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+
+          security import "$certificate_path" \
+            -P "$DEV_ID_APP_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          signing_identity="$(
+            security find-identity -v -p codesigning "$keychain_path" |
+              awk -v team_id="$TEAM_ID" '
+                /Developer ID Application:/ && index($0, "(" team_id ")") {
+                  print $2
+                  exit
+                }
+              '
+          )"
+
+          if [[ -z "$signing_identity" ]]; then
+            echo "::error::No Developer ID Application identity matches TEAM_ID."
+            exit 1
+          fi
+
+          {
+            echo "CODE_SIGN_IDENTITY=$signing_identity"
+            echo "DEVELOPMENT_TEAM=$TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Developer ID provisioning profile
+        env:
+          DEV_ID_PROVISIONING_PROFILE_BASE64: ${{ secrets.DEV_ID_PROVISIONING_PROFILE_BASE64 }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$DEV_ID_PROVISIONING_PROFILE_BASE64" ]]; then
+            echo "::error::DEV_ID_PROVISIONING_PROFILE_BASE64 repository secret is not configured."
+            exit 1
+          fi
+
+          profile_path="$RUNNER_TEMP/NetFees.provisionprofile"
+          profile_plist="$RUNNER_TEMP/NetFees-provisioning-profile.plist"
+          printf '%s' "$DEV_ID_PROVISIONING_PROFILE_BASE64" |
+            base64 --decode -o "$profile_path"
+          security cms -D -i "$profile_path" -o "$profile_plist"
+
+          profile_uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$profile_plist")
+          profile_name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$profile_plist")
+          profile_team=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$profile_plist")
+          profile_app_id=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:com.apple.application-identifier" \
+              "$profile_plist"
+          )
+          provisions_all_devices=$(
+            /usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$profile_plist"
+          )
+
+          if [[ "$profile_team" != "$TEAM_ID" ]]; then
+            echo "::error::The provisioning profile belongs to a different team."
+            exit 1
+          fi
+          if [[ "$profile_app_id" != "$TEAM_ID.moe.ryza.NetFees" ]]; then
+            echo "::error::The provisioning profile does not match the app bundle identifier."
+            exit 1
+          fi
+          if [[ "$provisions_all_devices" != "true" ]]; then
+            echo "::error::The provisioning profile is not a Developer ID profile."
+            exit 1
+          fi
+
+          profile_directory="$HOME/Library/MobileDevice/Provisioning Profiles"
+          installed_profile="$profile_directory/$profile_uuid.provisionprofile"
+          mkdir -p "$profile_directory"
+          cp "$profile_path" "$installed_profile"
+
+          {
+            echo "PROVISIONING_PROFILE_NAME=$profile_name"
+            echo "INSTALLED_PROVISIONING_PROFILE=$installed_profile"
+          } >> "$GITHUB_ENV"
+
+      - name: Generate Xcode project
+        run: ./scripts/generate-project.sh
+
+      - name: Build apps
+        run: |
+          set -euo pipefail
+
+          EXPORT_OPTIONS_PATH="$RUNNER_TEMP/ExportOptions.plist"
+          cp "Resources/ExportOptions.plist" "$EXPORT_OPTIONS_PATH"
+          /usr/libexec/PlistBuddy \
+            -c "Add :teamID string $DEVELOPMENT_TEAM" \
+            "$EXPORT_OPTIONS_PATH"
+          /usr/libexec/PlistBuddy \
+            -c "Add :provisioningProfiles dict" \
+            -c "Add :provisioningProfiles:moe.ryza.NetFees string $PROVISIONING_PROFILE_NAME" \
+            "$EXPORT_OPTIONS_PATH"
+
+          build_variant() {
+            variant="$1"
+            architectures="$2"
+            archive_path="dist/archives/$variant.xcarchive"
+            export_path="dist/apps/$variant"
+
+            xcodebuild \
+              archive \
+              -project "${{ env.PROJECT_NAME }}.xcodeproj/" \
+              -scheme "${{ env.PROJECT_NAME }}" \
+              -destination "generic/platform=macOS" \
+              -derivedDataPath "$RUNNER_TEMP/DerivedData-$variant" \
+              -archivePath "$archive_path" \
+              ONLY_ACTIVE_ARCH=NO \
+              ARCHS="$architectures" \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+              DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+              PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME"
+            xcodebuild \
+              -exportArchive \
+              -archivePath "$archive_path" \
+              -exportOptionsPlist "$EXPORT_OPTIONS_PATH" \
+              -exportPath "$export_path"
+          }
+
+          build_variant Universal "arm64 x86_64"
+          build_variant Apple-Silicon arm64
+          build_variant Intel x86_64
+
+      - name: Create disk images
+        run: |
+          set -euo pipefail
+          CAPITALIZED_PROJECT_NAME=$(echo "${{ env.PROJECT_NAME }}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+
+          brew install graphicsmagick imagemagick
+          npm install --global create-dmg
+
+          mkdir -p dist/dmgs
+          for variant in Universal Apple-Silicon Intel; do
+            output_directory="$RUNNER_TEMP/dmg-$variant"
+            mkdir -p "$output_directory"
+            create-dmg \
+              "dist/apps/$variant/${{ env.PROJECT_NAME }}.app" \
+              "$output_directory"
+            source_image=$(find "$output_directory" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+            if [[ -z "$source_image" ]]; then
+              echo "::error::create-dmg did not produce an image for $variant."
+              exit 1
+            fi
+            mv "$source_image" "dist/dmgs/${CAPITALIZED_PROJECT_NAME}-$variant.dmg"
+          done
+
+      - name: Notarize app
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for variable in APPLE_ID NOTARY_PASSWORD TEAM_ID; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::$variable repository secret is not configured."
+              exit 1
+            fi
+          done
+
+          for disk_image in dist/dmgs/*.dmg; do
+            xcrun notarytool submit \
+              --team-id "$TEAM_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$NOTARY_PASSWORD" \
+              --wait "$disk_image"
+            xcrun stapler staple "$disk_image"
+            xcrun stapler validate "$disk_image"
+          done
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/dmgs/*.dmg
+          generate_release_notes: true
+
+      - name: Delete temporary signing files
+        if: ${{ always() }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+          if [[ -n "${INSTALLED_PROVISIONING_PROFILE:-}" ]]; then
+            rm -f "$INSTALLED_PROVISIONING_PROFILE"
+          fi
+          rm -f "$RUNNER_TEMP/developer-id-application.p12"
+          rm -f "$RUNNER_TEMP/NetFees.provisionprofile"
+          rm -f "$RUNNER_TEMP/NetFees-provisioning-profile.plist"

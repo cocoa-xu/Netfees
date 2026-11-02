@@ -6,6 +6,7 @@ dist/
 DerivedData/
 xcuserdata/
 *.xcuserstate
+*.xcodeproj/
 *.app/
 *.dSYM/
 *.xcarchive/

@@ -1,0 +1,84 @@
+name: NetFees
+
+options:
+  minimumXcodeGenVersion: 2.45.4
+  xcodeVersion: "26.2"
+  projectFormat: xcode16_3
+  defaultConfig: Release
+  deploymentTarget:
+    macOS: "14.0"
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    SWIFT_VERSION: "6.0"
+
+targets:
+  NetFeesCore:
+    type: library.static
+    platform: macOS
+    sources:
+      - Sources/NetFeesCore
+    settings:
+      base:
+        DEFINES_MODULE: YES
+        SKIP_INSTALL: YES
+
+  NetFees:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/NetFees
+      - path: build/AppIcon.icns
+        buildPhase: resources
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/NetFees.entitlements
+        CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
+        CODE_SIGN_STYLE: Manual
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        MARKETING_VERSION: 0.1.0
+        PRODUCT_BUNDLE_IDENTIFIER: moe.ryza.NetFees
+      configs:
+        Release:
+          DEAD_CODE_STRIPPING: YES
+    dependencies:
+      - target: NetFeesCore
+
+  NetFeesTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/NetFeesCoreTests
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
+        CODE_SIGN_STYLE: Manual
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: moe.ryza.NetFeesTests
+    dependencies:
+      - target: NetFeesCore
+
+schemes:
+  NetFees:
+    build:
+      targets:
+        NetFees: all
+        NetFeesTests:
+          - test
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: NetFeesTests
+          parallelizable: true
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
