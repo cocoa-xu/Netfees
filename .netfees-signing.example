@@ -1,0 +1,2 @@
+# Copy to .netfees-signing.local and select an identity from your login keychain.
+CODE_SIGN_IDENTITY="Developer ID Application: YOUR NAME (YOUR_TEAM_ID)"
