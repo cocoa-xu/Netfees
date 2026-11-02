@@ -208,6 +208,7 @@ jobs:
             output_directory="$RUNNER_TEMP/dmg-$variant"
             mkdir -p "$output_directory"
             create-dmg \
+              --no-code-sign \
               "dist/apps/$variant/${{ env.PROJECT_NAME }}.app" \
               "$output_directory"
             source_image=$(find "$output_directory" -maxdepth 1 -type f -name '*.dmg' -print -quit)
@@ -216,6 +217,19 @@ jobs:
               exit 1
             fi
             mv "$source_image" "dist/dmgs/${CAPITALIZED_PROJECT_NAME}-$variant.dmg"
+          done
+
+      - name: Sign disk images
+        run: |
+          set -euo pipefail
+
+          for disk_image in dist/dmgs/*.dmg; do
+            ./scripts/retry.sh codesign \
+              --force \
+              --timestamp \
+              --sign "$CODE_SIGN_IDENTITY" \
+              "$disk_image"
+            codesign --verify --strict --verbose=2 "$disk_image"
           done
 
       - name: Notarize app
@@ -239,8 +253,8 @@ jobs:
               --apple-id "$APPLE_ID" \
               --password "$NOTARY_PASSWORD" \
               --wait "$disk_image"
-            xcrun stapler staple "$disk_image"
-            xcrun stapler validate "$disk_image"
+            ./scripts/retry.sh xcrun stapler staple "$disk_image"
+            ./scripts/retry.sh xcrun stapler validate "$disk_image"
           done
 
       - name: Upload release
