@@ -50,12 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.panel.orderOut(nil) }
         }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let consumed = MainActor.assumeIsolated {
                 guard let self else { return false }
-                if event.type == .keyDown, event.keyCode == 53 { self.panel.orderOut(nil); return true }
-                if event.type != .keyDown, event.window != self.panel,
-                   event.window != self.statusItem.button?.window { self.panel.orderOut(nil) }
+                if event.keyCode == 53 { self.panel.orderOut(nil); return true }
                 return false
             }
             return consumed ? nil : event
