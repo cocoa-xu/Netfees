@@ -38,11 +38,12 @@ final class UsageModel: ObservableObject {
 
     var today: DailyRecord { ledger.record(on: now) }
     var totalFee: Decimal { ledger.records.values.reduce(0) { $0 + $1.fee } }
-    var lastWeek: [DailyRecord] {
+    var lastWeekDays: [String] {
         (0..<7).reversed().compactMap { offset in
-            ledger.calendar.date(byAdding: .day, value: -offset, to: now).map { ledger.record(on: $0) }
+            ledger.calendar.date(byAdding: .day, value: -offset, to: now).map { ledger.dayKey($0) }
         }
     }
+    var lastWeek: [DailyRecord] { lastWeekDays.compactMap { ledger.records[$0] } }
 
     func start() {
         sample()
@@ -118,7 +119,7 @@ final class UsageModel: ObservableObject {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = "NetFees-\(ledger.dayKey(now)).csv"
-        panel.title = "Export your imaginary bill"
+        panel.title = "Export network usage and costs"
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
             do { try ledger.csv.write(to: url, atomically: true, encoding: .utf8) }

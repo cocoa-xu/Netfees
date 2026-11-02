@@ -1,12 +1,12 @@
 # NetFees
 
-Every byte has a price. Apparently.
+Every byte accounted for.
 
-A native macOS menu bar meter that turns your downloads into an imaginary French internet bill at **€0.055 per GB**. Real traffic, fictional debt, no payment button.
+A native macOS menu bar meter that records real network traffic and calculates download costs at **€0.055 per GB**.
 
 ## Use
 
-Open `build/NetFees.app`. The two menu bar lines show today's downloaded data and simulated fee. Click them for a glass panel with your bill, downloads, uploads, live transfer speeds, and a seven-day chart. History keeps every recorded day and exports CSV. The settings menu includes launch at login and access to the local history file.
+Open `build/NetFees.app`. The two menu bar lines show today's downloaded data and network cost. Click them for a glass panel with your costs, downloads, uploads, live transfer speeds, and a seven-day chart. History keeps every recorded day and exports CSV. The settings menu includes launch at login and access to the local history file.
 
 Requires macOS 14 or later. macOS 26 and later use native `NSGlassEffectView`; older systems use a translucent AppKit material. No third-party dependencies, administrator privileges, packet capture, or network extension are required.
 
@@ -31,7 +31,7 @@ Copy the bundle to `~/Applications/NetFees.app` for a stable installation before
 - The top menu bar line is **today's** download total. Both lines reset at the ledger's midnight; older totals remain in History.
 - One GB means 1,000,000,000 bytes. The ledger stores exact byte totals and computes fees with decimal arithmetic, rounding only for display. Uploads never contribute to the fee.
 - The meter samples 64-bit `NET_RT_IFLIST2` counters every second for `en` interfaces with numeric suffixes, normally Ethernet, Wi-Fi, and USB networking. It excludes `utun`, bridges, loopback, and peer-to-peer interfaces to avoid common double counting. VPN transport is counted on its underlying physical interface.
-- These are interface totals, including local-network traffic, retransmissions, and protocol overhead. They cannot identify taxable internet content, provider revenue caps, or French destinations. This is a deliberately approximate parody of a gross volume charge.
+- These are interface totals, including local-network traffic, retransmissions, and protocol overhead. All measured receive traffic contributes to the cost at the fixed rate.
 - Only traffic observed while the process runs is counted. Startup takes a fresh baseline instead of billing all traffic since boot. An added or reset interface also receives a fresh baseline.
 - Sampling intervals crossing midnight are divided proportionally by elapsed time. The time zone chosen on first launch stays fixed for consistent historical days, including daylight-saving transitions.
 - JSON history is saved atomically every 15 seconds, at midnight, before sleep, and on normal quit. A crash can lose at most the unsaved interval. An unreadable or unsupported history file is preserved, and an on-screen error explains that the current session cannot be saved.
@@ -40,4 +40,4 @@ History lives at `~/Library/Application Support/NetFees/ledger.json`. There is n
 
 ## Background
 
-Inspired by [the original PDF joke](https://x.com/_mizmo/status/2116845910181196046) and [French amendment I-1358](https://www.assemblee-nationale.fr/dyn/17/amendements/3210A/AN/1358). The proposal concerns content providers' downstream traffic to French subscribers, not an upload-and-download retail tariff. NetFees intentionally displays an uncapped simulation, not money owed.
+Inspired by [the original PDF joke](https://x.com/_mizmo/status/2116845910181196046) and [French amendment I-1358](https://www.assemblee-nationale.fr/dyn/17/amendements/3210A/AN/1358). NetFees uses the proposal's €0.055/GB rate for its fixed-rate download cost calculation.

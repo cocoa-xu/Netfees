@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.action = #selector(togglePanel)
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleNone
-            button.setAccessibilityLabel("NetFees: today's download and simulated bill")
+            button.setAccessibilityLabel("NetFees: today's download and network cost")
         }
         createPanel()
         model.onUpdate = { [weak self] in self?.updateStatus() }
@@ -121,8 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let fee = Display.euros(model.today.fee, precise: true)
         button.image = MenuBarReadout.image(download: download, fee: fee)
         statusItem.length = max(60, (button.image?.size.width ?? 0) + 16)
-        button.setAccessibilityValue("\(download), \(fee) simulated today")
-        button.toolTip = "Today: ↓ \(Display.bytes(model.today.downloadBytes)) · ↑ \(Display.bytes(model.today.uploadBytes)) · \(Display.euros(model.today.fee, precise: true)) simulated"
+        button.setAccessibilityValue("\(download), \(fee) today")
+        button.toolTip = "Today: ↓ \(Display.bytes(model.today.downloadBytes)) · ↑ \(Display.bytes(model.today.uploadBytes)) · \(Display.euros(model.today.fee, precise: true)) at €0.055/GB"
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -55,7 +55,7 @@ struct DashboardView: View {
             }.frame(width: 44, height: 44)
             VStack(alignment: .leading, spacing: 3) {
                 Text("netfees").font(.system(size: 26, weight: .heavy, design: .rounded)).tracking(-1)
-                Text("Every byte has a price. Apparently.")
+                Text("Every byte accounted for.")
                     .font(.system(size: 10.5)).foregroundStyle(.secondary)
             }
             Spacer()
@@ -63,7 +63,7 @@ struct DashboardView: View {
                 Image(systemName: "info.circle").font(.system(size: 17))
             }
             .buttonStyle(.plain)
-            .help("The joke, the rate, and the fine print")
+            .help("Traffic measurement and pricing")
             .accessibilityLabel("About NetFees")
             .popover(isPresented: $showAbout, arrowEdge: .leading) { about }
         }
@@ -72,23 +72,15 @@ struct DashboardView: View {
     private var today: some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("TODAY'S INTERNET BILL")
-                        .font(.system(size: 10, weight: .bold)).tracking(1.8)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("SIMULATED")
-                        .font(.system(size: 8, weight: .heavy)).tracking(1)
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(accent.opacity(0.12), in: Capsule())
-                        .foregroundStyle(accent)
-                }
+                Text("TODAY'S NETWORK COST")
+                    .font(.system(size: 10, weight: .bold)).tracking(1.8)
+                    .foregroundStyle(.secondary)
                 Text(Display.euros(model.today.fee, precise: true))
                     .font(.system(size: 57, weight: .light, design: .rounded))
                     .monospacedDigit().tracking(-2)
                     .lineLimit(1).minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
-                    .accessibilityLabel("Today's simulated bill: \(Display.euros(model.today.fee, precise: true))")
+                    .accessibilityLabel("Today's network cost: \(Display.euros(model.today.fee, precise: true))")
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.down.circle.fill").foregroundStyle(accent)
                     Text("\(Display.bytes(model.today.downloadBytes)) × €0.055 / GB")
@@ -96,10 +88,10 @@ struct DashboardView: View {
                 }.font(.system(size: 11, design: .monospaced))
                 Rectangle().fill(.primary.opacity(0.09)).frame(height: 1)
                 HStack {
-                    Text("Thank you for your contribution.")
+                    Text("Based on recorded download traffic.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                     Spacer()
-                    Image(systemName: "building.columns").foregroundStyle(accent.opacity(0.7))
+                    Image(systemName: "network").foregroundStyle(accent.opacity(0.7))
                 }
             }
             .padding(20)
@@ -137,18 +129,19 @@ struct DashboardView: View {
             }.foregroundStyle(.secondary)
             Chart(model.lastWeek) { day in
                 BarMark(x: .value("Day", String(day.id.suffix(5))),
-                        y: .value("Simulated EUR", NSDecimalNumber(decimal: day.fee).doubleValue), width: .ratio(0.5))
+                        y: .value("Cost in EUR", NSDecimalNumber(decimal: day.fee).doubleValue), width: .ratio(0.5))
                     .foregroundStyle(day.id == model.today.id ? accent : accent.opacity(0.28))
                     .cornerRadius(4)
                     .accessibilityLabel("\(day.id): \(Display.euros(day.fee, precise: true))")
             }
+            .chartXScale(domain: model.lastWeekDays.map { String($0.suffix(5)) })
             .chartYScale(domain: 0...max(0.01, model.lastWeek.map { NSDecimalNumber(decimal: $0.fee).doubleValue }.max() ?? 0))
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks { _ in AxisValueLabel().font(.system(size: 9)) }
             }
             .frame(height: 78)
-            Text("Your imaginary debt. Meticulously documented.")
+            Text("Daily cost from recorded downloads.")
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }.padding(.horizontal, 3)
     }
@@ -219,21 +212,17 @@ struct DashboardView: View {
                     Image(systemName: "slider.horizontal.3").font(.system(size: 13))
                 }.menuStyle(.borderlessButton).fixedSize().help("Settings and export")
             }
-            Text("Real bytes. Fictional bill. Nothing to pay.")
-                .font(.system(size: 9)).foregroundStyle(.tertiary)
         }
     }
 
     private var about: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("The price of a byte.").font(.title2.bold())
-            Text("Inspired by the French €0.055/GB proposal and a very expensive imaginary PDF download.")
-            Text("NetFees multiplies received bytes by €0.055 per decimal GB (1,000,000,000 bytes). Uploads are shown but never charged.")
-            Text("The proposal targets content providers sending data to French subscribers, with revenue-based caps. This uncapped parody is not your ISP bill or a tax assessment.")
+            Text("About NetFees").font(.title2.bold())
+            Text("NetFees reads this Mac's network counters and records daily upload and download totals.")
+            Text("Download costs are calculated at €0.055 per decimal GB (1,000,000,000 bytes). Uploads are measured separately and do not contribute to the cost.")
             Text("Metering covers en* network interfaces while NetFees runs, including local-network traffic and protocol overhead. VPN tunnels and loopback are excluded to avoid counting traffic twice. No packet contents are read.")
             Text("History begins when you first open NetFees. Closed-app traffic is not recorded. Intervals spanning midnight are divided by elapsed time. Days use \(model.ledger.timeZoneIdentifier).")
             Link("Read amendment I-1358 ↗", destination: URL(string: "https://www.assemblee-nationale.fr/dyn/17/amendements/3210A/AN/1358")!)
-            Link("The original PDF joke ↗", destination: URL(string: "https://x.com/_mizmo/status/2116845910181196046")!)
         }
         .font(.system(size: 11)).foregroundStyle(.secondary)
         .padding(24).frame(width: 360)

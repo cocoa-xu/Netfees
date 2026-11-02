@@ -127,7 +127,7 @@ public struct Ledger: Codable, Sendable {
     }
 
     public var csv: String {
-        let header = "date,download_bytes,upload_bytes,simulated_eur,rate_eur_per_GB,time_zone,observed_seconds"
+        let header = "date,download_bytes,upload_bytes,cost_eur,rate_eur_per_GB,time_zone,observed_seconds"
         let rows = sortedRecords.map {
             "\($0.id),\($0.downloadBytes),\($0.uploadBytes),\(NSDecimalNumber(decimal: $0.fee).stringValue),0.055,\(timeZoneIdentifier),\(Int($0.observedSeconds))"
         }

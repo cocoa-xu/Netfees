@@ -20,7 +20,7 @@ enum MenuBarReadout {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Downloaded \(download), simulated fee \(fee) today"
+        image.accessibilityDescription = "Downloaded \(download), network cost \(fee) today"
         return image
     }
 }
