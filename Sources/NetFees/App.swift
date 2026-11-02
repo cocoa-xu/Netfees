@@ -20,6 +20,8 @@ final class MeterPanel: NSPanel {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private let dashboardSize = NSSize(width: 440, height: 680)
+    private let glassInset: CGFloat = 2
     private var statusItem: NSStatusItem!
     private var panel: MeterPanel!
     private var model: UsageModel!
@@ -34,10 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         model = UsageModel()
-        statusItem = NSStatusBar.system.statusItem(withLength: 78)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.target = self
             button.action = #selector(togglePanel)
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleNone
             button.setAccessibilityLabel("NetFees: today's download and simulated bill")
         }
         createPanel()
@@ -67,7 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func createPanel() {
-        panel = MeterPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 680),
+        let panelSize = NSSize(width: dashboardSize.width + glassInset * 2,
+                               height: dashboardSize.height + glassInset * 2)
+        panel = MeterPanel(contentRect: NSRect(origin: .zero, size: panelSize),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -78,16 +84,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.delegate = self
         panel.title = "NetFees"
         let host = NSHostingView(rootView: DashboardView(model: model))
-        host.frame = NSRect(x: 0, y: 0, width: 440, height: 680)
+        host.frame = NSRect(origin: .zero, size: dashboardSize)
         host.autoresizingMask = [.width, .height]
+        let surface = NSView(frame: NSRect(origin: .zero, size: panelSize))
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = 28 + glassInset
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.masksToBounds = true
+        let glassFrame = host.frame.offsetBy(dx: glassInset, dy: glassInset)
         if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: host.frame)
+            let glass = NSGlassEffectView(frame: glassFrame)
+            glass.autoresizingMask = [.width, .height]
             glass.style = .regular
             glass.cornerRadius = 28
             glass.contentView = host
-            panel.contentView = glass
+            surface.addSubview(glass)
         } else {
-            let visual = NSVisualEffectView(frame: host.frame)
+            let visual = NSVisualEffectView(frame: glassFrame)
+            visual.autoresizingMask = [.width, .height]
             visual.material = .hudWindow
             visual.blendingMode = .behindWindow
             visual.state = .active
@@ -95,22 +109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             visual.layer?.cornerRadius = 28
             visual.layer?.masksToBounds = true
             visual.addSubview(host)
-            panel.contentView = visual
+            surface.addSubview(visual)
         }
+        panel.contentView = surface
+        panel.invalidateShadow()
     }
 
     private func updateStatus() {
         guard let button = statusItem.button else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.minimumLineHeight = 10
-        paragraph.maximumLineHeight = 10
-        let title = NSAttributedString(string: "\(Display.bytes(model.today.downloadBytes))\n\(Display.euros(model.today.fee, precise: true))", attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: paragraph
-        ])
-        button.attributedTitle = title
+        let download = Display.bytes(model.today.downloadBytes)
+        let fee = Display.euros(model.today.fee, precise: true)
+        button.image = MenuBarReadout.image(download: download, fee: fee)
+        statusItem.length = max(60, (button.image?.size.width ?? 0) + 16)
+        button.setAccessibilityValue("\(download), \(fee) simulated today")
         button.toolTip = "Today: ↓ \(Display.bytes(model.today.downloadBytes)) · ↑ \(Display.bytes(model.today.uploadBytes)) · \(Display.euros(model.today.fee, precise: true)) simulated"
     }
 
@@ -125,8 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = window.screen ?? NSScreen.main!
         let visible = screen.visibleFrame
-        let x = max(visible.minX + 8, min(anchor.midX - 220, visible.maxX - 448))
-        panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 8, anchor.minY - 688)))
+        let x = max(visible.minX + 8, min(anchor.midX - panel.frame.width / 2, visible.maxX - panel.frame.width - 8))
+        panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 8, anchor.minY - panel.frame.height - 8)))
         panel.makeKeyAndOrderFront(nil)
     }
 
