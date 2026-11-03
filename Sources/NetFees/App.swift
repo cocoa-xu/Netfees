@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 @main
 struct NetFeesApp {
@@ -25,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var panel: MeterPanel!
     private var model: UsageModel!
+    private var dashboard: DashboardView!
     private var outsideMonitor: Any?
     private var localMonitor: Any?
     private var workspaceObservers: [NSObjectProtocol] = []
@@ -50,7 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.setAccessibilityLabel("NetFees: today's download and network cost")
         }
         createPanel()
-        model.onUpdate = { [weak self] in self?.updateStatus() }
+        model.onUpdate = { [weak self] in
+            guard let self else { return }
+            self.updateStatus()
+            if self.panel.isVisible { self.dashboard.refresh() }
+        }
         model.start()
         outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.panel.orderOut(nil) }
@@ -58,7 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let consumed = MainActor.assumeIsolated {
                 guard let self else { return false }
-                if event.keyCode == 53 { self.panel.orderOut(nil); return true }
+                if event.keyCode == 53, event.window === self.panel {
+                    self.panel.orderOut(nil)
+                    return true
+                }
                 return false
             }
             return consumed ? nil : event
@@ -86,7 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.title = "NetFees"
-        let host = NSHostingView(rootView: DashboardView(model: model))
+        dashboard = DashboardView(model: model)
+        let host = dashboard!
         host.frame = NSRect(origin: .zero, size: dashboardSize)
         host.autoresizingMask = [.width, .height]
         let surface = NSView(frame: NSRect(origin: .zero, size: panelSize))
@@ -141,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let visible = screen.visibleFrame
         let x = max(visible.minX + 8, min(anchor.midX - panel.frame.width / 2, visible.maxX - panel.frame.width - 8))
         panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 8, anchor.minY - panel.frame.height - 8)))
+        dashboard.refresh()
         panel.makeKeyAndOrderFront(nil)
     }
 

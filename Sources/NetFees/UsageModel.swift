@@ -1,20 +1,19 @@
 import AppKit
-import Combine
 import NetFeesCore
 import ServiceManagement
 import UniformTypeIdentifiers
 
 @MainActor
-final class UsageModel: ObservableObject {
-    @Published private(set) var ledger: Ledger
-    @Published private(set) var now = Date()
-    @Published private(set) var rate = Traffic()
-    @Published private(set) var interfaces: [String] = []
-    @Published private(set) var error: String?
-    @Published private(set) var applicationLedger = ApplicationLedger(timeZoneIdentifier: TimeZone.current.identifier)
-    @Published private(set) var applicationRates: [String: Traffic] = [:]
-    @Published private(set) var applicationStatus = "Connecting to application counters…"
-    @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
+final class UsageModel {
+    private(set) var ledger: Ledger
+    private(set) var now = Date()
+    private(set) var rate = Traffic()
+    private(set) var interfaces: [String] = []
+    private(set) var error: String?
+    private(set) var applicationLedger = ApplicationLedger(timeZoneIdentifier: TimeZone.current.identifier)
+    private(set) var applicationRates: [String: Traffic] = [:]
+    private(set) var applicationStatus = "Connecting to application counters…"
+    private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     private let store: LedgerStore
     private let applicationStoreURL: URL
@@ -67,6 +66,7 @@ final class UsageModel: ObservableObject {
             self?.applicationRates = [:]
             self?.applicationStatus = "Application counters unavailable. Retrying automatically."
             self?.nextApplicationAttempt = Date().addingTimeInterval(30)
+            self?.onUpdate?()
         }
     }
 
@@ -175,6 +175,7 @@ final class UsageModel: ObservableObject {
         applicationRates = rates
         lastApplicationSample = end
         applicationStatus = applicationStorageError ?? "Live · highest cost first"
+        onUpdate?()
     }
 
     func save() {
@@ -216,6 +217,7 @@ final class UsageModel: ObservableObject {
         applicationMeter.stop()
         applicationRates = [:]
         save()
+        onUpdate?()
     }
 
     func wake() {
@@ -225,6 +227,7 @@ final class UsageModel: ObservableObject {
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
+        defer { onUpdate?() }
         do {
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
@@ -242,6 +245,7 @@ final class UsageModel: ObservableObject {
     }
 
     func exportCSV() {
+        defer { onUpdate?() }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = "NetFees-\(ledger.dayKey(now)).csv"

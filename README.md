@@ -4,6 +4,8 @@ Every byte accounted for.
 
 A native macOS menu bar meter that records real network traffic and calculates download costs at **€0.055 per GB**.
 
+Written in Swift with AppKit. The panel, tables, menus, and popovers use native macOS controls; the small seven-day chart is drawn directly. No SwiftUI or Charts dependency.
+
 ## Use
 
 Download a DMG from [GitHub Releases](https://github.com/cocoa-xu/Netfees/releases/latest), open it, and drag NetFees into Applications. Choose Apple Silicon for M-series Macs, Intel for Intel Macs, or Universal for either. Release apps are signed with Developer ID, and the DMGs are notarized and stapled.
