@@ -9,6 +9,9 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
     private let key = NSSecureTextField()
     private let connect = NSButton(title: "Connect", target: nil, action: nil)
     private let site = NSPopUpButton()
+    private let menuBar = NSButton(checkboxWithTitle: "Show UniFi in the menu bar by default", target: nil, action: nil)
+    private let interval = NSTextField()
+    private let presets = NSSegmentedControl(labels: ["1 s", "3 s", "5 s"], trackingMode: .momentary, target: nil, action: nil)
     private let message = DashboardStyle.label(size: 11, color: .secondaryLabelColor)
     private let save = NSButton(title: "Save", target: nil, action: nil)
     private let disconnect = NSButton(title: "Disconnect", target: nil, action: nil)
@@ -20,13 +23,13 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
 
     init(model: UniFiModel) {
         self.model = model
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "UniFi Settings"
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        let content = FlippedView(frame: NSRect(x: 0, y: 0, width: 520, height: 440))
+        let content = FlippedView(frame: NSRect(x: 0, y: 0, width: 520, height: 560))
         window.contentView = content
         let introduction = DashboardStyle.paragraph("See your whole site's Internet usage and download cost. Connect directly to a UniFi OS console with a local API key from Integrations.", width: 472, size: 12)
         introduction.frame.origin = NSPoint(x: 24, y: 20)
@@ -54,18 +57,31 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
         site.setAccessibilityLabel("UniFi site")
         message.maximumNumberOfLines = 0
         message.lineBreakMode = .byWordWrapping
-        message.frame = NSRect(x: 24, y: 280, width: 472, height: 76)
-        let privacy = DashboardStyle.paragraph("The API key stays in macOS Keychain. Only WAN statistics are read. Disabling UniFi stops requests and hides the panel.", width: 472, size: 10)
-        privacy.frame.origin = NSPoint(x: 24, y: 354)
-        disconnect.frame = NSRect(x: 18, y: 394, width: 112, height: 30)
-        save.frame = NSRect(x: 400, y: 394, width: 102, height: 30)
+        menuBar.frame = NSRect(x: 24, y: 278, width: 472, height: 24)
+        let intervalLabel = DashboardStyle.label("Refresh every", weight: .medium)
+        intervalLabel.frame = NSRect(x: 24, y: 321, width: 94, height: 20)
+        interval.frame = NSRect(x: 122, y: 316, width: 70, height: 26)
+        interval.setAccessibilityLabel("UniFi refresh interval in seconds")
+        interval.delegate = self
+        let seconds = DashboardStyle.label("seconds", color: .secondaryLabelColor)
+        seconds.frame = NSRect(x: 200, y: 321, width: 58, height: 20)
+        presets.frame = NSRect(x: 272, y: 316, width: 160, height: 26)
+        presets.target = self
+        presets.action = #selector(selectInterval)
+        let timing = DashboardStyle.paragraph("5 seconds is a good starting point. Faster polling can show the same values until the controller updates its statistics.", width: 472, size: 10)
+        timing.frame.origin = NSPoint(x: 24, y: 354)
+        message.frame = NSRect(x: 24, y: 401, width: 472, height: 58)
+        let privacy = DashboardStyle.paragraph("The API key stays in macOS Keychain. Site and client statistics are read only. Disabling UniFi stops requests and hides the panel.", width: 472, size: 10)
+        privacy.frame.origin = NSPoint(x: 24, y: 468)
+        disconnect.frame = NSRect(x: 18, y: 514, width: 112, height: 30)
+        save.frame = NSRect(x: 400, y: 514, width: 102, height: 30)
         save.keyEquivalent = "\r"
         for (button, action) in [(connect, #selector(connectToConsole)), (save, #selector(saveSettings)), (disconnect, #selector(disconnectConsole))] {
             button.bezelStyle = .rounded
             button.target = self
             button.action = action
         }
-        [endpoint, key, connect, site, message, privacy, disconnect, save].forEach { content.addSubview($0) }
+        [endpoint, key, connect, site, menuBar, intervalLabel, interval, seconds, presets, timing, message, privacy, disconnect, save].forEach { content.addSubview($0) }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -77,8 +93,10 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
         key.stringValue = ""
         key.placeholderString = config == nil ? "Local console API key" : "Leave blank to use the key in Keychain"
         enabled.state = config?.enabled == false ? .off : .on
+        menuBar.state = config?.options.showsInMenuBar == true ? .on : .off
+        interval.stringValue = String(config?.options.refreshInterval ?? 5)
         disconnect.isHidden = config == nil
-        message.stringValue = model.settingsError ?? "Connect to load the sites available to this key."
+        message.stringValue = model.settingsError ?? (config == nil ? "Connect to load the sites available to this key." : "Your saved connection is ready. Display settings can be changed without reconnecting.")
         if let config {
             sites = [config.site]
             site.addItem(withTitle: config.site.displayName)
@@ -96,6 +114,7 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        if obj.object as? NSTextField === interval { updateControls(); return }
         invalidateConnection()
         message.stringValue = "Connect to verify the updated connection."
         updateControls()
@@ -117,7 +136,24 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
         key.isEnabled = on
         connect.isEnabled = on && task == nil
         site.isEnabled = on && connectedEndpoint != nil
-        save.isEnabled = !on || connectedEndpoint != nil
+        menuBar.isEnabled = on
+        interval.isEnabled = on
+        presets.isEnabled = on
+        if site.numberOfItems == 0, canUseSavedConnection, let config = model.configuration {
+            sites = [config.site]
+            site.addItem(withTitle: config.site.displayName)
+        }
+        save.isEnabled = task == nil && (!on || connectedEndpoint != nil || canUseSavedConnection)
+    }
+
+    private var canUseSavedConnection: Bool {
+        guard let config = model.configuration else { return false }
+        return key.stringValue.isEmpty && (try? UniFiEndpoint(endpoint.stringValue)) == config.endpoint
+    }
+
+    @objc private func selectInterval() {
+        guard (0..<3).contains(presets.selectedSegment) else { return }
+        interval.stringValue = String([1, 3, 5][presets.selectedSegment])
     }
 
     @objc private func toggleEnabled() {
@@ -182,11 +218,18 @@ final class UniFiPreferences: NSWindowController, NSWindowDelegate, NSTextFieldD
 
     @objc private func saveSettings() {
         do {
-            if enabled.state == .off { try model.setEnabled(false) }
+            let options: UniFiOptions
+            if enabled.state == .off { options = try model.configuration?.options ?? UniFiOptions() }
+            else {
+                guard let seconds = Int(interval.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw UniFiOptionsError.interval }
+                options = try UniFiOptions(showsInMenuBar: menuBar.state == .on, refreshInterval: seconds)
+            }
+            if enabled.state == .off { try model.setOptions(options, enabled: false) }
+            else if connectedEndpoint == nil, canUseSavedConnection { try model.setOptions(options, enabled: true) }
             else {
                 guard let endpoint = connectedEndpoint, let key = connectedKey,
                       sites.indices.contains(site.indexOfSelectedItem) else { return }
-                try model.save(endpoint: endpoint, site: sites[site.indexOfSelectedItem], key: key, certificatePin: certificatePin, enabled: true)
+                try model.save(endpoint: endpoint, site: sites[site.indexOfSelectedItem], key: key, certificatePin: certificatePin, enabled: true, options: options)
             }
             close()
         } catch { message.stringValue = error.localizedDescription }

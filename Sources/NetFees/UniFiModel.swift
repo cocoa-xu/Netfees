@@ -63,23 +63,70 @@ struct UniFiConfiguration: Codable {
     let site: UniFiSite
     let keychainAccount: String
     let certificatePin: String?
+    var options: UniFiOptions
+
+    init(enabled: Bool, endpoint: UniFiEndpoint, site: UniFiSite, keychainAccount: String, certificatePin: String?, options: UniFiOptions) {
+        self.enabled = enabled
+        self.endpoint = endpoint
+        self.site = site
+        self.keychainAccount = keychainAccount
+        self.certificatePin = certificatePin
+        self.options = options
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        enabled = try values.decode(Bool.self, forKey: .enabled)
+        endpoint = try values.decode(UniFiEndpoint.self, forKey: .endpoint)
+        site = try values.decode(UniFiSite.self, forKey: .site)
+        keychainAccount = try values.decode(String.self, forKey: .keychainAccount)
+        certificatePin = try values.decodeIfPresent(String.self, forKey: .certificatePin)
+        options = try values.decodeIfPresent(UniFiOptions.self, forKey: .options) ?? UniFiOptions()
+    }
 }
 
 @MainActor
 final class UniFiModel {
     private(set) var configuration: UniFiConfiguration?
-    private(set) var report: UniFiReport?
-    private(set) var period = UniFiPeriod.day
+    var report: UniFiReport? { currentReport(for: period) }
+    var todayReport: UniFiReport? { currentReport(for: .today) }
+    var clientsReport: UniFiClientsReport? {
+        guard let value = clientReports[period.rawValue] else { return nil }
+        if period == .today, !Calendar.current.isDateInToday(value.fetchedAt) { return nil }
+        return value
+    }
+    private(set) var period = UniFiPeriod.today
+    var rate: Traffic? {
+        guard let rateUpdatedAt, Date().timeIntervalSince(rateUpdatedAt) <= max(30, Double(refreshInterval) * 3) else { return nil }
+        return latestRate
+    }
+    var hasCurrentStations: Bool {
+        guard let stationsUpdatedAt else { return false }
+        return clientsError == nil && Date().timeIntervalSince(stationsUpdatedAt) <= max(30, Double(refreshInterval) * 3)
+    }
+    private(set) var stations: [String: UniFiStation] = [:]
+    private(set) var clientsError: String?
+    private(set) var todayError: String?
     private(set) var error: String?
     private(set) var isRefreshing = false
     private(set) var settingsError: String?
     var onUpdate: (() -> Void)?
     var isEnabled: Bool { configuration?.enabled == true }
+    var showsInMenuBar: Bool { isEnabled && configuration?.options.showsInMenuBar == true }
+    var refreshInterval: Int { configuration?.options.refreshInterval ?? 5 }
 
     private let settingsURL: URL
     private let cacheURL: URL
     private var client: UniFiClient?
     private var reports: [String: UniFiReport] = [:]
+    private var clientReports: [String: UniFiClientsReport] = [:]
+    private var lastCacheWrite = Date.distantPast
+    private var retryAfter = Date.distantPast
+    private var failures = 0
+    private var latestRate: Traffic?
+    private var rateUpdatedAt: Date?
+    private var stationsUpdatedAt: Date?
     private var task: Task<Void, Never>?
     private var timer: Timer?
     private var generation = UUID()
@@ -88,6 +135,8 @@ final class UniFiModel {
     private struct Cache: Codable {
         let account: String
         let reports: [String: UniFiReport]
+        var clients: [String: UniFiClientsReport]?
+        var stations: [String: UniFiStation]?
     }
 
     init(directory: URL) {
@@ -103,7 +152,8 @@ final class UniFiModel {
         if let data = try? Data(contentsOf: cacheURL), let cache = try? JSONDecoder().decode(Cache.self, from: data),
            cache.account == configuration?.keychainAccount {
             reports = cache.reports
-            report = reports[period.rawValue]
+            clientReports = cache.clients ?? [:]
+            stations = cache.stations ?? [:]
         }
     }
 
@@ -111,14 +161,15 @@ final class UniFiModel {
         isRunning = true
         guard isEnabled else { return }
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Double(refreshInterval), repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
-        timer?.tolerance = 5
+        timer?.tolerance = min(1, Double(refreshInterval) / 10)
         refresh()
     }
 
     func stop() {
+        try? saveCache()
         isRunning = false
         generation = UUID()
         timer?.invalidate()
@@ -127,6 +178,9 @@ final class UniFiModel {
         task = nil
         client = nil
         isRefreshing = false
+        latestRate = nil
+        rateUpdatedAt = nil
+        stationsUpdatedAt = nil
     }
 
     func select(_ period: UniFiPeriod) {
@@ -136,20 +190,34 @@ final class UniFiModel {
         task = nil
         isRefreshing = false
         self.period = period
-        report = reports[period.rawValue]
         error = nil
-        refresh()
+        clientsError = nil
+        refresh(force: true)
         onUpdate?()
     }
 
-    func refresh() {
-        guard isRunning, isEnabled, let config = configuration, task == nil else { return }
+    private func currentReport(for period: UniFiPeriod) -> UniFiReport? {
+        guard let report = reports[period.rawValue] else { return nil }
+        if period == .today, report.window.start != Calendar.current.startOfDay(for: Date()) { return nil }
+        return report
+    }
+
+    var isTodayStale: Bool {
+        guard let report = todayReport else { return true }
+        return todayError != nil || Date().timeIntervalSince(report.fetchedAt) > max(30, Double(refreshInterval) * 3)
+    }
+
+    func refresh(force: Bool = false) {
+        guard isRunning, isEnabled, let config = configuration, task == nil,
+              force || Date() >= retryAfter else { return }
         if client == nil {
             do {
                 let key = try UniFiKeychain.read(account: config.keychainAccount, endpoint: config.endpoint, certificatePin: config.certificatePin)
                 client = UniFiClient(endpoint: config.endpoint, key: key, certificatePin: config.certificatePin)
             } catch {
                 self.error = error.localizedDescription
+                todayError = self.error
+                retryAfter = Date().addingTimeInterval(30)
                 onUpdate?()
                 return
             }
@@ -158,30 +226,77 @@ final class UniFiModel {
         let token = generation
         let requestedPeriod = period
         isRefreshing = true
-        onUpdate?()
         task = Task { [weak self] in
+            guard let self else { return }
+            @MainActor func current() -> Bool { !Task.isCancelled && self.generation == token }
             do {
-                let report = try await client.report(site: config.site, period: requestedPeriod)
-                guard let self, !Task.isCancelled, self.generation == token else { return }
-                self.report = report
-                self.reports[requestedPeriod.rawValue] = report
+                let today = try await client.report(site: config.site, period: .today)
+                guard current() else { return }
+                self.reports[UniFiPeriod.today.rawValue] = today
+                self.todayError = nil
                 self.error = nil
-                do { try self.saveCache() } catch { self.error = UniFiStorageError.configuration.localizedDescription }
+                self.failures = 0
+                self.retryAfter = .distantPast
+                self.onUpdate?()
             } catch {
-                guard let self, !Task.isCancelled, self.generation == token else { return }
-                self.error = (error as? UniFiError)?.localizedDescription ?? UniFiError.connection.localizedDescription
+                guard current() else { return }
+                self.todayError = Self.message(error)
+                if requestedPeriod == .today { self.error = self.todayError }
+                self.failures = min(self.failures + 1, 6)
+                self.retryAfter = Date().addingTimeInterval(max(Double(self.refreshInterval), min(60, pow(2, Double(self.failures)))))
             }
-            guard let self, self.generation == token else { return }
+            if requestedPeriod != .today,
+               force || self.report == nil || Date().timeIntervalSince(self.report!.fetchedAt) >= 60 {
+                do {
+                    let report = try await client.report(site: config.site, period: requestedPeriod)
+                    guard current() else { return }
+                    self.reports[requestedPeriod.rawValue] = report
+                    self.error = nil
+                } catch {
+                    guard current() else { return }
+                    self.error = Self.message(error)
+                }
+            }
+            let rate = try? await client.wanRate(site: config.site)
+            guard current() else { return }
+            self.latestRate = rate
+            self.rateUpdatedAt = rate == nil ? nil : Date()
+            do {
+                let stations = try await client.stations(site: config.site)
+                guard current() else { return }
+                self.stations = stations
+                self.stationsUpdatedAt = Date()
+                let cached = self.clientsReport
+                if force || cached == nil || requestedPeriod == .today || Date().timeIntervalSince(cached!.fetchedAt) >= 60 {
+                    let clients = try await client.clients(site: config.site, period: requestedPeriod, stations: stations)
+                    guard current() else { return }
+                    self.clientReports[requestedPeriod.rawValue] = clients
+                }
+                self.clientsError = nil
+            } catch {
+                guard current() else { return }
+                self.clientsError = Self.message(error)
+            }
+            guard current() else { return }
+            if Date().timeIntervalSince(self.lastCacheWrite) >= 30 {
+                do { try self.saveCache() }
+                catch { self.settingsError = UniFiStorageError.configuration.localizedDescription }
+            }
             self.isRefreshing = false
             self.task = nil
             self.onUpdate?()
         }
+        onUpdate?()
     }
 
-    func save(endpoint: UniFiEndpoint, site: UniFiSite, key: String, certificatePin: String?, enabled: Bool) throws {
+    private static func message(_ error: Error) -> String {
+        (error as? UniFiError)?.localizedDescription ?? UniFiError.connection.localizedDescription
+    }
+
+    func save(endpoint: UniFiEndpoint, site: UniFiSite, key: String, certificatePin: String?, enabled: Bool, options: UniFiOptions) throws {
         let account = UUID().uuidString
         try UniFiKeychain.write(key, account: account, endpoint: endpoint, certificatePin: certificatePin)
-        let config = UniFiConfiguration(enabled: enabled, endpoint: endpoint, site: site, keychainAccount: account, certificatePin: certificatePin)
+        let config = UniFiConfiguration(enabled: enabled, endpoint: endpoint, site: site, keychainAccount: account, certificatePin: certificatePin, options: options)
         do {
             try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(config).write(to: settingsURL, options: .atomic)
@@ -196,16 +311,17 @@ final class UniFiModel {
         configuration = config
         settingsError = nil
         error = nil
-        if !sameSite { reports = [:]; report = nil }
+        if !sameSite { reports = [:]; clientReports = [:]; stations = [:] }
         try? saveCache()
         if let oldAccount { try? UniFiKeychain.delete(account: oldAccount) }
         if wasRunning { start() }
         onUpdate?()
     }
 
-    func setEnabled(_ enabled: Bool) throws {
+    func setOptions(_ options: UniFiOptions, enabled: Bool) throws {
         guard var config = configuration else { return }
         config.enabled = enabled
+        config.options = options
         do { try JSONEncoder().encode(config).write(to: settingsURL, options: .atomic) }
         catch { throw UniFiStorageError.configuration }
         let wasRunning = isRunning
@@ -222,7 +338,10 @@ final class UniFiModel {
         isRunning = wasRunning
         configuration = nil
         reports = [:]
-        report = nil
+        clientReports = [:]
+        stations = [:]
+        todayError = nil
+        clientsError = nil
         error = nil
         defer { onUpdate?() }
         for url in [settingsURL, cacheURL] where FileManager.default.fileExists(atPath: url.path) {
@@ -233,6 +352,7 @@ final class UniFiModel {
 
     private func saveCache() throws {
         guard let config = configuration else { return }
-        try JSONEncoder().encode(Cache(account: config.keychainAccount, reports: reports)).write(to: cacheURL, options: .atomic)
+        try JSONEncoder().encode(Cache(account: config.keychainAccount, reports: reports, clients: clientReports, stations: stations)).write(to: cacheURL, options: .atomic)
+        lastCacheWrite = Date()
     }
 }

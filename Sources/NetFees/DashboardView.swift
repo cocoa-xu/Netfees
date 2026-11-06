@@ -17,6 +17,7 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
     private let subtitle = DashboardStyle.label("Every byte accounted for.", size: 10.5, color: .secondaryLabelColor)
     private let info = NSButton()
     private let tabs = NSSegmentedControl(labels: ["Today", "History"], trackingMode: .selectOne, target: nil, action: nil)
+    private let sources = NSSegmentedControl(labels: ["Local", "UniFi"], trackingMode: .selectOne, target: nil, action: nil)
     private let todayPage = FlippedView()
     private let historyPage = FlippedView()
     private let importPage = DashboardCard()
@@ -63,7 +64,7 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         self.model = model
         unifiPage = UniFiView(model: model.unifi)
         super.init(frame: NSRect(x: 0, y: 0, width: 440, height: 680))
-        [logo, title, subtitle, info, tabs, todayPage, historyPage, importPage, unifiPage, error, separator, statusDot, status, settings].forEach { addSubview($0) }
+        [logo, title, subtitle, info, sources, tabs, todayPage, historyPage, importPage, unifiPage, error, separator, statusDot, status, settings].forEach { addSubview($0) }
         logo.image = NSImage(named: NSImage.applicationIconName)
         logo.imageScaling = .scaleProportionallyUpOrDown
         configureSymbol(info, symbol: "info.circle", label: "About NetFees", action: #selector(showAbout))
@@ -72,6 +73,10 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         tabs.target = self
         tabs.action = #selector(changePage)
         tabs.setAccessibilityLabel("View")
+        sources.selectedSegment = 0
+        sources.target = self
+        sources.action = #selector(changePage)
+        sources.setAccessibilityLabel("Data source")
         separator.boxType = .separator
         error.maximumNumberOfLines = 2
         error.lineBreakMode = .byWordWrapping
@@ -98,25 +103,28 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
 
     required init?(coder: NSCoder) { nil }
 
+    func openDefaultSource() {
+        sources.selectedSegment = model.unifi.showsInMenuBar ? 1 : 0
+        tabs.selectedSegment = 0
+        unifiPage.setHistory(false)
+        refresh()
+    }
+
     func refresh() {
-        let count = model.unifi.isEnabled ? 3 : 2
-        if tabs.segmentCount != count {
-            let selection = min(tabs.selectedSegment, count - 1)
-            tabs.segmentCount = count
-            for (index, label) in ["Today", "History", "UniFi"].prefix(count).enumerated() { tabs.setLabel(label, forSegment: index) }
-            tabs.selectedSegment = max(0, selection)
-        }
+        if !model.unifi.isEnabled { sources.selectedSegment = 0 }
+        let unifi = sources.selectedSegment == 1
         let imported = model.pendingInitialImport
+        sources.isHidden = !model.unifi.isEnabled || imported != nil
         tabs.isHidden = imported != nil
         importPage.isHidden = imported == nil
-        todayPage.isHidden = imported != nil || tabs.selectedSegment != 0
-        historyPage.isHidden = imported != nil || tabs.selectedSegment != 1
-        unifiPage.isHidden = imported != nil || tabs.selectedSegment != 2
+        todayPage.isHidden = imported != nil || unifi || tabs.selectedSegment != 0
+        historyPage.isHidden = imported != nil || unifi || tabs.selectedSegment != 1
+        unifiPage.isHidden = imported != nil || !unifi
         error.stringValue = model.error ?? ""
-        error.isHidden = model.error == nil || tabs.selectedSegment == 2
+        error.isHidden = model.error == nil || unifi
         statusDot.textColor = model.error == nil ? .systemGreen : .systemOrange
         status.stringValue = model.interfaces.isEmpty ? "Waiting for a network interface" : "Metering this Mac"
-        if tabs.selectedSegment == 2 {
+        if unifi {
             status.stringValue = "UniFi site statistics"
             statusDot.textColor = model.unifi.error == nil ? .systemGreen : .systemOrange
         }
@@ -124,6 +132,8 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
             importAmount.stringValue = Display.euros(imported.fee, precise: true)
             importDownload.stringValue = "↓ \(Display.bytes(imported.traffic.received)) downloaded"
             importUpload.stringValue = "↑ \(Display.bytes(imported.traffic.sent)) uploaded"
+        } else if unifi {
+            unifiPage.refresh()
         } else if tabs.selectedSegment == 0 {
             fee.stringValue = Display.euros(model.today.fee, precise: true)
             fee.setAccessibilityLabel("Today's network cost")
@@ -147,8 +157,6 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
             historyTotal.stringValue = Display.euros(model.totalFee, precise: true)
             historyZone.stringValue = "Stored on this Mac · \(model.ledger.timeZoneIdentifier)"
             refreshHistory()
-        } else {
-            unifiPage.refresh()
         }
         needsLayout = true
     }
@@ -160,8 +168,8 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         title.frame = NSRect(x: 70, y: 17, width: width - 85, height: 32)
         subtitle.frame = NSRect(x: 70, y: 48, width: width - 60, height: 14)
         info.frame = NSRect(x: bounds.width - 44, y: 24, width: 24, height: 24)
-        let tabsWidth: CGFloat = model.unifi.isEnabled ? 200 : 134
-        tabs.frame = NSRect(x: (bounds.width - tabsWidth) / 2, y: 78, width: tabsWidth, height: 24)
+        sources.frame = NSRect(x: 20, y: 78, width: 154, height: 24)
+        tabs.frame = NSRect(x: model.unifi.isEnabled ? bounds.width - 154 : (bounds.width - 134) / 2, y: 78, width: 134, height: 24)
         let footerY = bounds.height - 46
         let page = NSRect(x: 20, y: 112, width: width, height: footerY - 112 - (error.isHidden ? 12 : 48))
         [todayPage, historyPage, importPage, unifiPage].forEach { $0.frame = page }
@@ -350,7 +358,10 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         footnote.frame.origin = NSPoint(x: 18, y: 407)
     }
 
-    @objc private func changePage() { refresh() }
+    @objc private func changePage() {
+        if sources.selectedSegment == 1 { unifiPage.setHistory(tabs.selectedSegment == 1) }
+        refresh()
+    }
     @objc private func acceptImport() { model.resolveInitialImport(include: true) }
     @objc private func declineImport() { model.resolveInitialImport(include: false) }
     @objc private func exportHistory() { model.exportCSV() }

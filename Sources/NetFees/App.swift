@@ -128,10 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func updateStatus() {
         guard let button = statusItem.button else { return }
+        if model.unifi.showsInMenuBar {
+            let report = model.unifi.todayReport
+            let cached = report != nil && model.unifi.isTodayStale
+            let download = report.map { Display.bytes($0.traffic.received) } ?? "UniFi"
+            let fee = report.map { Display.euros($0.fee, precise: true) } ?? "N/A"
+            button.image = MenuBarReadout.image(download: cached ? "\(download)*" : download, fee: fee)
+            statusItem.length = max(60, (button.image?.size.width ?? 0) + 16)
+            let state = cached ? "Cached" : report == nil ? "Unavailable" : "Today"
+            let label = "UniFi: \(state), \(download), \(fee)"
+            button.setAccessibilityLabel("NetFees: UniFi downloads and network cost")
+            button.setAccessibilityValue(label)
+            button.toolTip = "\(model.unifi.configuration?.site.displayName ?? "UniFi") · \(label)\nWAN downloads at €0.055/GB · \(TimeZone.current.identifier)\n\(model.unifi.todayError ?? "Controller-reported usage; the current interval may still be updating.")"
+            return
+        }
         let download = Display.bytes(model.today.downloadBytes)
         let fee = Display.euros(model.today.fee, precise: true)
         button.image = MenuBarReadout.image(download: download, fee: fee)
         statusItem.length = max(60, (button.image?.size.width ?? 0) + 16)
+        button.setAccessibilityLabel("NetFees: this Mac's downloads and network cost")
         button.setAccessibilityValue("\(download), \(fee) today")
         button.toolTip = "Today: ↓ \(Display.bytes(model.today.downloadBytes)) · ↑ \(Display.bytes(model.today.uploadBytes)) · \(Display.euros(model.today.fee, precise: true)) at €0.055/GB"
     }
@@ -149,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let visible = screen.visibleFrame
         let x = max(visible.minX + 8, min(anchor.midX - panel.frame.width / 2, visible.maxX - panel.frame.width - 8))
         panel.setFrameOrigin(NSPoint(x: x, y: max(visible.minY + 8, anchor.minY - panel.frame.height - 8)))
-        dashboard.refresh()
+        dashboard.openDefaultSource()
         panel.makeKeyAndOrderFront(nil)
     }
 
