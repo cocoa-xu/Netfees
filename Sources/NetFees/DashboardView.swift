@@ -20,6 +20,8 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
     private let todayPage = FlippedView()
     private let historyPage = FlippedView()
     private let importPage = DashboardCard()
+    private let unifiPage: UniFiView
+    private var unifiPreferences: UniFiPreferences?
     private let bill = DashboardCard()
     private let billTitle = DashboardStyle.label("TODAY'S NETWORK COST", size: 10, weight: .bold, color: .secondaryLabelColor)
     private let fee = DashboardStyle.label(size: 42, weight: .light, monospaced: true)
@@ -59,8 +61,9 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
 
     init(model: UsageModel) {
         self.model = model
+        unifiPage = UniFiView(model: model.unifi)
         super.init(frame: NSRect(x: 0, y: 0, width: 440, height: 680))
-        [logo, title, subtitle, info, tabs, todayPage, historyPage, importPage, error, separator, statusDot, status, settings].forEach { addSubview($0) }
+        [logo, title, subtitle, info, tabs, todayPage, historyPage, importPage, unifiPage, error, separator, statusDot, status, settings].forEach { addSubview($0) }
         logo.image = NSImage(named: NSImage.applicationIconName)
         logo.imageScaling = .scaleProportionallyUpOrDown
         configureSymbol(info, symbol: "info.circle", label: "About NetFees", action: #selector(showAbout))
@@ -96,15 +99,27 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
     required init?(coder: NSCoder) { nil }
 
     func refresh() {
+        let count = model.unifi.isEnabled ? 3 : 2
+        if tabs.segmentCount != count {
+            let selection = min(tabs.selectedSegment, count - 1)
+            tabs.segmentCount = count
+            for (index, label) in ["Today", "History", "UniFi"].prefix(count).enumerated() { tabs.setLabel(label, forSegment: index) }
+            tabs.selectedSegment = max(0, selection)
+        }
         let imported = model.pendingInitialImport
         tabs.isHidden = imported != nil
         importPage.isHidden = imported == nil
         todayPage.isHidden = imported != nil || tabs.selectedSegment != 0
         historyPage.isHidden = imported != nil || tabs.selectedSegment != 1
+        unifiPage.isHidden = imported != nil || tabs.selectedSegment != 2
         error.stringValue = model.error ?? ""
-        error.isHidden = model.error == nil
+        error.isHidden = model.error == nil || tabs.selectedSegment == 2
         statusDot.textColor = model.error == nil ? .systemGreen : .systemOrange
         status.stringValue = model.interfaces.isEmpty ? "Waiting for a network interface" : "Metering this Mac"
+        if tabs.selectedSegment == 2 {
+            status.stringValue = "UniFi site statistics"
+            statusDot.textColor = model.unifi.error == nil ? .systemGreen : .systemOrange
+        }
         if let imported {
             importAmount.stringValue = Display.euros(imported.fee, precise: true)
             importDownload.stringValue = "↓ \(Display.bytes(imported.traffic.received)) downloaded"
@@ -128,10 +143,12 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
             }
             updateVisibleRows(appsTable)
             appsEmpty.isHidden = !applications.isEmpty
-        } else {
+        } else if tabs.selectedSegment == 1 {
             historyTotal.stringValue = Display.euros(model.totalFee, precise: true)
             historyZone.stringValue = "Stored on this Mac · \(model.ledger.timeZoneIdentifier)"
             refreshHistory()
+        } else {
+            unifiPage.refresh()
         }
         needsLayout = true
     }
@@ -143,10 +160,11 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         title.frame = NSRect(x: 70, y: 17, width: width - 85, height: 32)
         subtitle.frame = NSRect(x: 70, y: 48, width: width - 60, height: 14)
         info.frame = NSRect(x: bounds.width - 44, y: 24, width: 24, height: 24)
-        tabs.frame = NSRect(x: (bounds.width - 134) / 2, y: 78, width: 134, height: 24)
+        let tabsWidth: CGFloat = model.unifi.isEnabled ? 200 : 134
+        tabs.frame = NSRect(x: (bounds.width - tabsWidth) / 2, y: 78, width: tabsWidth, height: 24)
         let footerY = bounds.height - 46
         let page = NSRect(x: 20, y: 112, width: width, height: footerY - 112 - (error.isHidden ? 12 : 48))
-        [todayPage, historyPage, importPage].forEach { $0.frame = page }
+        [todayPage, historyPage, importPage, unifiPage].forEach { $0.frame = page }
         bill.frame = NSRect(x: 0, y: 0, width: width, height: 114)
         billTitle.frame = NSRect(x: 14, y: 13, width: width - 28, height: 14)
         fee.frame = NSRect(x: 14, y: 31, width: width - 28, height: 52)
@@ -342,6 +360,8 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
 
     @objc private func showSettings() {
         let menu = NSMenu()
+        menu.addItem(withTitle: "UniFi Settings…", action: #selector(showUniFiSettings), keyEquivalent: "")
+        menu.addItem(.separator())
         let login = menu.addItem(withTitle: "Launch at login", action: #selector(toggleLogin), keyEquivalent: "")
         login.state = model.launchAtLogin ? .on : .off
         menu.addItem(withTitle: "Export history as CSV…", action: #selector(exportHistory), keyEquivalent: "")
@@ -350,6 +370,12 @@ final class DashboardView: FlippedView, NSTableViewDataSource, NSTableViewDelega
         menu.addItem(withTitle: "Quit NetFees", action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: settings.bounds.maxY), in: settings)
+    }
+
+    @objc private func showUniFiSettings() {
+        if unifiPreferences == nil { unifiPreferences = UniFiPreferences(model: model.unifi) }
+        window?.orderOut(nil)
+        unifiPreferences?.present()
     }
 
     @objc private func showAbout() {

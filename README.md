@@ -16,6 +16,16 @@ On first launch, choose whether to import the cumulative interface counters alre
 
 Requires macOS 14 or later. macOS 26 and later use native `NSGlassEffectView`; older systems use a translucent AppKit material. No third-party dependencies, administrator privileges, packet capture, network extension, or installed privileged helper are required. Application metering runs the macOS-provided `nettop` command as the current user.
 
+## Optional UniFi site meter
+
+Open the panel's settings menu and choose **UniFi Settings…**. Enter your UniFi OS console's HTTPS URL and a local API key created in the console's **Integrations** page, click **Connect**, choose a site, and **Save**. The UniFi tab appears only after the integration is enabled and configured. Disabling it hides the tab and stops polling; Disconnect also removes the saved key and cached UniFi statistics.
+
+The separate UniFi panel shows whole-site WAN downloads, uploads, and download cost for the last 24 hours, 7 days, or 30 days. It reads the controller's retained byte statistics, refreshes once a minute, and uses the same €0.055 per decimal GB rate. It does not add site totals to the Mac's ledger. Completed intervals are used, ending at the previous whole hour, so this is historical usage rather than a live speed meter. The displayed coverage dates show the actual reporting interval. Missing intervals are marked as partial coverage; unavailable data is never presented as zero usage. Cached results are marked when the controller is offline.
+
+This requires a UniFi gateway with retained WAN statistics and a UniFi OS console or UniFi OS Server that accepts local API keys. A cloud Site Manager key or an older standalone Network Server using only username/password login is not supported. The integration reads the controller's internal legacy hourly report or modern `wanBySite` statistics interface, depending on the reported statistics source. These are version-dependent interfaces, separate from the [official Network API](https://developer.ui.com/network/v10.6.106/getadopteddevicelateststatistics), which exposes device rates rather than the historical WAN byte totals needed here. Compatibility follows the request formats documented by the [UniFi API client maintainers](https://github.com/Art-of-WiFi/UniFi-API-client#compatibility).
+
+Keys are stored only in macOS Keychain and sent in the `X-API-KEY` header to the configured HTTPS endpoint. Redirects are refused. If the console uses a self-signed certificate, Settings offers to pin that certificate after you verify its SHA-256 fingerprint. A changed certificate requires another explicit verification. The normal system certificate trust remains in use for other endpoints.
+
 ## Build
 
 With Xcode installed:
@@ -72,7 +82,7 @@ Application history starts when the feature begins observing traffic. `nettop` p
 
 Application accounting is separate from the physical-interface bill. VPNs, proxies, shared services, connection lifetimes, and very short-lived processes can affect attribution. App totals need not add up to the interface total and are never added to that total a second time. Application sampling pauses during sleep, resets its baseline on restart, and resumes automatically after a counter-service failure. Unobserved traffic is not reconstructed per app.
 
-Overall history lives at `~/Library/Application Support/NetFees/ledger.json`; application history lives alongside it in `applications.json`. Both are saved atomically. An unreadable application history is preserved. CSV exports distinguish daily rows from the optional initial import. There is no telemetry or automatic network request. External source links open only when clicked.
+Overall history lives at `~/Library/Application Support/NetFees/ledger.json`; application history lives alongside it in `applications.json`. Both are saved atomically. An unreadable application history is preserved. CSV exports distinguish daily rows from the optional initial import. Optional UniFi connection settings and cached reports live alongside these files in `unifi.json` and `unifi-history.json`; neither contains the API key. There is no telemetry. Network requests are made only when connecting or refreshing an enabled UniFi integration. External source links open only when clicked.
 
 ## Background
 

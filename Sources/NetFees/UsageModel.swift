@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class UsageModel {
+    let unifi: UniFiModel
     private(set) var ledger: Ledger
     private(set) var now = Date()
     private(set) var rate = Traffic()
@@ -36,6 +37,7 @@ final class UsageModel {
     init(directory: URL? = nil) {
         let root = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NetFees", isDirectory: true)
+        unifi = UniFiModel(directory: root)
         store = LedgerStore(url: root.appendingPathComponent("ledger.json"))
         applicationStoreURL = root.appendingPathComponent("applications.json")
         do {
@@ -68,6 +70,7 @@ final class UsageModel {
             self?.nextApplicationAttempt = Date().addingTimeInterval(30)
             self?.onUpdate?()
         }
+        unifi.onUpdate = { [weak self] in self?.onUpdate?() }
     }
 
     var today: DailyRecord { ledger.record(on: now) }
@@ -84,6 +87,7 @@ final class UsageModel {
 
     func start() {
         isRunning = true
+        unifi.start()
         sample()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sample() }
@@ -205,6 +209,7 @@ final class UsageModel {
 
     func stop() {
         isRunning = false
+        unifi.stop()
         timer?.invalidate()
         applicationMeter.stop()
         sample()
@@ -213,6 +218,7 @@ final class UsageModel {
 
     func prepareForSleep() {
         isSleeping = true
+        unifi.stop()
         sample()
         applicationMeter.stop()
         applicationRates = [:]
@@ -222,6 +228,7 @@ final class UsageModel {
 
     func wake() {
         isSleeping = false
+        unifi.start()
         nextApplicationAttempt = .distantPast
         sample()
     }

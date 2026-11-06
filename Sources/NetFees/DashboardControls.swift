@@ -58,9 +58,10 @@ final class TrafficCard: DashboardCard {
 
     required init?(coder: NSCoder) { nil }
 
-    func update(bytes: UInt64, rate: UInt64) {
+    func update(bytes: UInt64, rate: UInt64?) {
         amount.stringValue = Display.bytes(bytes)
-        speed.stringValue = "\(Display.bytes(rate))/s"
+        speed.stringValue = rate.map { "\(Display.bytes($0))/s" } ?? ""
+        speed.isHidden = rate == nil
     }
 
     override func layout() {

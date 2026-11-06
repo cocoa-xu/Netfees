@@ -12,6 +12,7 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>NetFees connects to the UniFi console you configure to read your site's Internet usage.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Cocoa</string>
 </dict></plist>
