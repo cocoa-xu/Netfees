@@ -77,9 +77,12 @@ public final class UniFiTransport: NSObject, URLSessionTaskDelegate, @unchecked 
     }
 }
 
-public struct UniFiClient: Sendable {
+public actor UniFiClient {
     private let transport: UniFiTransport
     private let key: String
+    private var modernSource: Bool?
+    private var knownStations: [String: UniFiStation] = [:]
+    private var stationsFetchedAt = Date.distantPast
 
     public init(endpoint: UniFiEndpoint, key: String, certificatePin: String? = nil) {
         transport = UniFiTransport(endpoint: endpoint, certificatePin: certificatePin)
@@ -92,22 +95,10 @@ public struct UniFiClient: Sendable {
 
     public func report(site: UniFiSite, period: UniFiPeriod, now: Date = Date()) async throws -> UniFiReport {
         let window = period.window(at: now)
-        let modern: Bool
-        do {
-            let data = try await transport.request(path: "v2/api/stats/source", key: key)
-            let source = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String
-            guard source == "MODERN" || source == "LEGACY" else { throw UniFiError.response }
-            modern = source == "MODERN"
-        } catch UniFiError.unavailable { modern = false }
+        let modern = try await isModern()
         let data: Data
         if modern {
-            data = try await transport.request(path: "v2/api/stats/recent/series", key: key, query: [
-                URLQueryItem(name: "schema", value: "wanBySite"),
-                URLQueryItem(name: "period", value: period.seriesPeriod),
-                URLQueryItem(name: "end", value: String(Int64(window.end.timeIntervalSince1970 * 1000))),
-                URLQueryItem(name: "filter", value: "siteId.eq('\(site.id)')"),
-                URLQueryItem(name: "projection", value: "values(rxBytes,txBytes)")
-            ])
+            data = try await series(schema: "wanBySite", site: site, period: period, window: window)
         } else {
             let body = try JSONSerialization.data(withJSONObject: [
                 "attrs": ["time", "wan-rx_bytes", "wan-tx_bytes"],
@@ -119,5 +110,73 @@ public struct UniFiClient: Sendable {
         do { return try UniFiParser.report(data, modern: modern, site: site, period: period, window: window) }
         catch let error as UniFiError { throw error }
         catch { throw UniFiError.response }
+    }
+
+    public func wanRate(site: UniFiSite) async throws -> Traffic {
+        try UniFiParser.wanRate(await transport.request(path: "api/s/\(site.name)/stat/health", key: key))
+    }
+
+    public func stations(site: UniFiSite, now: Date = Date()) async throws -> [String: UniFiStation] {
+        if now.timeIntervalSince(stationsFetchedAt) >= 300 {
+            let data = try await transport.request(path: "api/s/\(site.name)/rest/user", key: key)
+            let stations = try UniFiParser.stations(data, online: false)
+            knownStations = stations.reduce(into: [:]) { $0[$1.id] = $1 }
+            stationsFetchedAt = now
+        }
+        var result = knownStations
+        let data = try await transport.request(path: "api/s/\(site.name)/stat/sta", key: key)
+        for station in try UniFiParser.stations(data, online: true) { result[station.id] = station }
+        return result
+    }
+
+    public func clients(site: UniFiSite, period: UniFiPeriod, stations: [String: UniFiStation], now: Date = Date()) async throws -> UniFiClientsReport {
+        let window = period.window(at: now)
+        let modern = try await isModern()
+        let pages: [Data]
+        if modern { pages = [try await series(schema: "wanTrafficBySiteByClient", site: site, period: period, window: window)] }
+        else {
+            var result: [Data] = []
+            var start = window.start
+            while start < window.end {
+                try Task.checkCancellation()
+                let end = min(start.addingTimeInterval(86_400), window.end)
+                result += try await clientPages(site: site, start: start, end: end)
+                start = end
+            }
+            pages = result
+        }
+        return try UniFiParser.clients(pages, modern: modern, site: site, stations: stations, period: period, window: window)
+    }
+
+    private func clientPages(site: UniFiSite, start: Date, end: Date) async throws -> [Data] {
+        let body = try JSONSerialization.data(withJSONObject: ["attrs": ["time", "rx_bytes", "tx_bytes"],
+            "start": Int64(start.timeIntervalSince1970 * 1000), "end": Int64(end.timeIntervalSince1970 * 1000)])
+        let data = try await transport.request(path: "api/s/\(site.name)/stat/report/hourly.user", key: key, body: body)
+        if try UniFiParser.rows(data).count < 3000 { return [data] }
+        let middle = Date(timeIntervalSince1970: floor((start.timeIntervalSince1970 + end.timeIntervalSince1970) / 7200) * 3600)
+        guard middle > start, middle < end else { throw UniFiError.response }
+        let first = try await clientPages(site: site, start: start, end: middle)
+        return first + (try await clientPages(site: site, start: middle, end: end))
+    }
+
+    private func isModern() async throws -> Bool {
+        if let modernSource { return modernSource }
+        do {
+            let data = try await transport.request(path: "v2/api/stats/source", key: key)
+            let source = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String
+            guard source == "MODERN" || source == "LEGACY" else { throw UniFiError.response }
+            modernSource = source == "MODERN"
+        } catch UniFiError.unavailable { modernSource = false }
+        return modernSource!
+    }
+
+    private func series(schema: String, site: UniFiSite, period: UniFiPeriod, window: DateInterval) async throws -> Data {
+        try await transport.request(path: "v2/api/stats/recent/series", key: key, query: [
+                URLQueryItem(name: "schema", value: schema),
+                URLQueryItem(name: "period", value: period.seriesPeriod),
+                URLQueryItem(name: "end", value: String(Int64(window.end.timeIntervalSince1970 * 1000))),
+                URLQueryItem(name: "filter", value: "siteId.eq('\(site.id)')"),
+                URLQueryItem(name: "projection", value: "values(rxBytes,txBytes)")
+            ])
     }
 }

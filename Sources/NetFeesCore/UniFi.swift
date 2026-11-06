@@ -75,13 +75,14 @@ public struct UniFiSite: Codable, Equatable, Sendable {
 }
 
 public enum UniFiPeriod: String, Codable, CaseIterable, Sendable {
-    case day, week, month
+    case today, day, week, month
     public var title: String {
-        switch self { case .day: "Last 24 hours"; case .week: "Last 7 days"; case .month: "Last 30 days" }
+        switch self { case .today: "Today"; case .day: "Last 24 hours"; case .week: "Last 7 days"; case .month: "Last 30 days" }
     }
-    public var hours: Int { switch self { case .day: 24; case .week: 168; case .month: 720 } }
-    public var seriesPeriod: String { switch self { case .day: "DAY"; case .week: "WEEK"; case .month: "MONTH" } }
-    public func window(at now: Date) -> DateInterval {
+    public var hours: Int { switch self { case .today, .day: 24; case .week: 168; case .month: 720 } }
+    public var seriesPeriod: String { switch self { case .today, .day: "DAY"; case .week: "WEEK"; case .month: "MONTH" } }
+    public func window(at now: Date, calendar: Calendar = .current) -> DateInterval {
+        if self == .today { return DateInterval(start: calendar.startOfDay(for: now), end: now) }
         let end = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 3600) * 3600)
         return DateInterval(start: end.addingTimeInterval(-Double(hours) * 3600), end: end)
     }
@@ -160,12 +161,13 @@ public enum UniFiParser {
                   let timestamp = number(row[modern ? "timestamp" : "time"]), timestamp > 0,
                   let duration = modern ? number(row["duration"]) : 3_600_000, duration > 0, duration <= 2_678_400_000 else { throw UniFiError.response }
             let start = Date(timeIntervalSince1970: timestamp / 1000)
-            buckets.append(UniFiBucket(start: start, end: start.addingTimeInterval(duration / 1000), traffic: Traffic(received: received, sent: sent)))
+            let end = start.addingTimeInterval(duration / 1000)
+            buckets.append(UniFiBucket(start: start, end: period == .today ? min(end, window.end) : end, traffic: Traffic(received: received, sent: sent)))
         }
         return try UniFiReport(buckets: buckets, period: period, window: window)
     }
 
-    private static func rows(_ data: Data) throws -> [[String: Any]] {
+    static func rows(_ data: Data) throws -> [[String: Any]] {
         let root = try JSONSerialization.jsonObject(with: data)
         if let rows = root as? [[String: Any]] { return rows }
         guard let object = root as? [String: Any] else { throw UniFiError.response }
@@ -174,12 +176,12 @@ public enum UniFiParser {
         return rows
     }
 
-    private static func number(_ value: Any?) -> Double? {
+    static func number(_ value: Any?) -> Double? {
         guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
         return n.doubleValue
     }
 
-    private static func bytes(_ value: Any?) -> UInt64? {
+    static func bytes(_ value: Any?) -> UInt64? {
         guard let n = value as? NSNumber, let double = number(value), double >= 0, double < Double(UInt64.max) else { return nil }
         return n.uint64Value
     }
