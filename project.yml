@@ -37,10 +37,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Resources/NetFees.entitlements
         CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
         CODE_SIGN_STYLE: Manual
-        CURRENT_PROJECT_VERSION: 18
+        CURRENT_PROJECT_VERSION: 24
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
-        MARKETING_VERSION: 0.2.0
+        MARKETING_VERSION: 0.3.0
         PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.Netfees
       configs:
         Release:
